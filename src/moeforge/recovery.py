@@ -208,6 +208,7 @@ def _sample_manifest(
             {
                 "index": index,
                 "source": f"input_ids:{index}",
+                "input_ids": sample,
                 "token_count": len(sample),
                 "sha256": _sha256_json(sample),
             }

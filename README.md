@@ -35,6 +35,7 @@ moe-forge eval-report-html --input eval-report.json --output eval-report.html
 moe-forge eval-compare eval-all.json eval-router.json --output eval-compare.json --html-output eval-compare.html
 moe-forge eval-batch --config eval-batch.json --output-dir eval-runs
 moe-forge recovery-plan --config recovery.json --output recovery-plan.json
+moe-forge recovery-run --plan recovery-plan.json --output recovery-run-report.json
 ```
 
 Supported inputs:
@@ -89,6 +90,7 @@ Current evaluation support includes:
 - multi-report comparison JSON/HTML for quality-first ranking, speed ratios, and active expert summaries
 - config-driven eval batches that run multiple expert modes, emit per-mode reports, compare completed runs, and preserve recovery-eval settings
 - teacher-KL recovery plan artifacts with loss, optimizer, sample, checkpoint, and before/after eval-batch comparison records
+- a tiny recovery runner that consumes recovery plans, computes teacher-KL/logits losses on input-id batches, promotes carved tensors for training, and writes checkpoint metadata
 
 Example eval batch config:
 

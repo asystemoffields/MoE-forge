@@ -20,6 +20,7 @@ from .reports import (
     write_eval_html_report_payload,
 )
 from .recovery import write_recovery_plan
+from .recovery_runner import run_recovery
 from .recipe import recipe_to_dict
 from .router import build_router_plan
 from .runtime import verify_carved_artifact
@@ -59,6 +60,8 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_eval_batch(args)
         if args.command == "recovery-plan":
             return _cmd_recovery_plan(args)
+        if args.command == "recovery-run":
+            return _cmd_recovery_run(args)
     except Exception as exc:  # pragma: no cover - CLI boundary
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -233,6 +236,15 @@ def build_parser() -> argparse.ArgumentParser:
     recovery_parser.add_argument("--config", type=Path, required=True, help="Recovery plan JSON config.")
     recovery_parser.add_argument("--output", type=Path, help="Recovery plan output path.")
     recovery_parser.add_argument("--print", action="store_true", help="Also print the recovery plan JSON.")
+
+    recovery_run_parser = subparsers.add_parser(
+        "recovery-run",
+        help="Run a tiny teacher-KL recovery loop from a recovery plan.",
+    )
+    recovery_run_parser.add_argument("--plan", type=Path, required=True, help="Recovery plan JSON artifact.")
+    recovery_run_parser.add_argument("--output", type=Path, help="Recovery run report output path.")
+    recovery_run_parser.add_argument("--max-steps", type=int, help="Override planned step count for smoke runs.")
+    recovery_run_parser.add_argument("--print", action="store_true", help="Also print the recovery run report JSON.")
 
     return parser
 
@@ -462,6 +474,16 @@ def _cmd_recovery_plan(args: argparse.Namespace) -> int:
         print(json.dumps(plan, indent=2, sort_keys=True))
     else:
         print(f"wrote {plan['artifacts']['plan_path']}")
+    return 0
+
+
+def _cmd_recovery_run(args: argparse.Namespace) -> int:
+    report = run_recovery(plan_path=args.plan, output_path=args.output, max_steps=args.max_steps)
+    if args.print:
+        print(json.dumps(report, indent=2, sort_keys=True))
+    else:
+        output = args.output or Path(str(report["output_dir"])) / "recovery-run-report.json"
+        print(f"wrote {output}")
     return 0
 
 
