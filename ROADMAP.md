@@ -40,7 +40,7 @@ Each conversion backend should report:
 3. Tensor mapping registry for gated and ungated FFNs. Initial safetensors/index validation exists.
 4. Activation profiler that records neuron frequency, magnitude, and co-activation. Initial hook-based magnitude/frequency profiling exists.
 5. Carved-MLP constructor for HF safetensors. Initial validated carve manifest generation and safetensors materialization exist.
-6. Router initialization from activation clusters.
+6. Router initialization from activation clusters. Initial document-pool router metadata exists.
 7. Teacher-KL recovery training.
 8. Evaluation reports with JSON and HTML outputs.
 
@@ -52,7 +52,7 @@ Partition dense FFN channels into shared and routed expert groups. This is the f
 
 Current carved artifacts materialize shared/expert tensor slices for inspection and downstream assembly. The next step is writing runnable HF MoE module/config wrappers around those slices.
 
-Current runtime support can verify carved tensors reconstruct source dense FFN weights and can execute all carved experts as a gated MLP parity layer. The next step is a router-enabled module and HF wrapper/config generation.
+Current runtime support can verify carved tensors reconstruct source dense FFN weights and can execute all carved experts as a gated MLP parity layer. It can also execute selected expert subsets from document-pool router metadata. The next step is HF wrapper/config generation.
 
 ### Sparse Upcycle
 

@@ -25,6 +25,7 @@ moe-forge adapters
 moe-forge inspect <model-path> --json
 moe-forge plan <model-path> --goal balanced --output recipe.json
 moe-forge profile <model-path> --text-file calibration.txt --output profile.json
+moe-forge router-plan --profile profile.json --pool-size 2 --output router-plan.json
 moe-forge carve-manifest <model-path> --recipe recipe.json --profile profile.json --output carve-manifest.json
 moe-forge carve-apply --manifest carve-manifest.json --output-dir carved-artifact
 moe-forge carve-verify --manifest carve-manifest.json --artifact carved-artifact/carved-experts.safetensors
@@ -54,6 +55,13 @@ Current profiling includes:
 - per-document activation summaries with stable text hashes for EMO-style expert-pool analysis
 - first-pass document expert-pool recommendations for selected-subset routing experiments
 - first-pass shared/routed expert channel assignments from activation importance
+
+Current routing support includes:
+
+- EMO-inspired `document_pool_then_token_router` metadata
+- default expert-pool fallback from aggregate document scores
+- expert-pool selection by document index, text hash, or raw text hash
+- runtime integration for selected-subset carved MLP execution
 
 Current carving support includes:
 

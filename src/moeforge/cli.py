@@ -13,6 +13,7 @@ from .materialize import materialize_carve_manifest
 from .planner import PlanOptions, plan_conversion
 from .profiling import ProfileOptions, load_calibration_texts, profile_hf_model
 from .recipe import recipe_to_dict
+from .router import build_router_plan
 from .runtime import verify_carved_artifact
 
 
@@ -35,6 +36,8 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_carve_apply(args)
         if args.command == "carve-verify":
             return _cmd_carve_verify(args)
+        if args.command == "router-plan":
+            return _cmd_router_plan(args)
     except Exception as exc:  # pragma: no cover - CLI boundary
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -131,6 +134,15 @@ def build_parser() -> argparse.ArgumentParser:
     verify_parser.add_argument("--rtol", type=float, default=1e-5, help="Relative allclose tolerance.")
     verify_parser.add_argument("--output", type=Path, default=Path("carve-verify-report.json"), help="Verification report output path.")
     verify_parser.add_argument("--print", action="store_true", help="Also print the verification report JSON.")
+
+    router_parser = subparsers.add_parser(
+        "router-plan",
+        help="Build EMO-style document expert-pool router metadata from a profile report.",
+    )
+    router_parser.add_argument("--profile", type=Path, required=True, help="Profile JSON from moe-forge profile.")
+    router_parser.add_argument("--pool-size", type=int, help="Experts to keep per document.")
+    router_parser.add_argument("--output", type=Path, default=Path("router-plan.json"), help="Router plan output path.")
+    router_parser.add_argument("--print", action="store_true", help="Also print the router plan JSON.")
 
     return parser
 
@@ -261,6 +273,17 @@ def _cmd_carve_verify(args: argparse.Namespace) -> int:
         status = "passed" if report.passed else "failed"
         print(f"{status}; wrote {args.output}")
     return 0 if report.passed else 1
+
+
+def _cmd_router_plan(args: argparse.Namespace) -> int:
+    plan = build_router_plan(profile_path=args.profile, pool_size=args.pool_size)
+    payload = plan.to_dict()
+    _write_json(args.output, payload)
+    if args.print:
+        print(json.dumps(payload, indent=2, sort_keys=True))
+    else:
+        print(f"wrote {args.output}")
+    return 0
 
 
 def _write_json(path: Path, payload: dict[str, Any]) -> None:

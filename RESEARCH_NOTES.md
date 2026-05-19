@@ -15,7 +15,7 @@ MoE Forge should adapt this as a dense-to-MoE conversion principle:
 1. Preserve calibration sample identity during profiling. Initial support exists through per-document profile summaries keyed by stable text hashes.
 2. Collect per-document FFN channel summaries alongside global channel summaries.
 3. Compare global-importance carving against document-cluster carving.
-4. Add router metadata for a `document_pool_then_token_router` strategy. Initial profiling reports now include first-pass document expert-pool recommendations.
+4. Add router metadata for a `document_pool_then_token_router` strategy. Initial profiling reports and router-plan artifacts now include first-pass document expert-pool recommendations.
 5. Evaluate selected expert subsets with `keep_k` sweeps.
 
 Near-term experiment:

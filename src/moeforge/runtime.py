@@ -215,6 +215,25 @@ class CarvedGatedMLP:
             raise RuntimeErrorMoEForge(f"no runnable carved MLP tensors found for layer {self.layer}")
         return output
 
+    def forward_with_router(
+        self,
+        x: Any,
+        *,
+        router_plan: dict[str, Any],
+        text: str | None = None,
+        text_sha256: str | None = None,
+        document_index: int | None = None,
+    ) -> Any:
+        from .router import select_expert_pool
+
+        experts = select_expert_pool(
+            router_plan,
+            text=text,
+            text_sha256=text_sha256,
+            document_index=document_index,
+        )
+        return self.forward_selected(x, experts=experts)
+
     def _prefix(self, kind: str, expert: int | None) -> str:
         if kind == "shared":
             return f"moe.layers.{self.layer}.mlp.shared"
