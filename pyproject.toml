@@ -1,0 +1,30 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "moe-forge"
+version = "0.1.0"
+description = "A dense-to-MoE planning and conversion lab for local language models."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+authors = [
+  { name = "MoE Forge contributors" }
+]
+keywords = ["llm", "mixture-of-experts", "moe", "model-compression", "gguf"]
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+hf = ["torch>=2.2", "transformers>=4.45", "safetensors>=0.4"]
+profile = ["torch>=2.2", "transformers>=4.45", "safetensors>=0.4"]
+yaml = ["PyYAML>=6.0"]
+
+[project.scripts]
+moe-forge = "moeforge.cli:main"
+moeify = "moeforge.cli:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
