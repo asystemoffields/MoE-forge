@@ -21,7 +21,7 @@ The first implementation slice focuses on reliable inspection and recipe plannin
 ## Current Commands
 
 ```powershell
-moe-forge convert C:\models\gemma --output-dir gemma-moe-run --moe-layers all --experts 8 --top-k 2 --token-router-top-k 2 --recover --train-text-file train.txt --eval-text-file eval.txt
+moe-forge convert C:\models\gemma --output-dir gemma-moe-run --moe-layers all --experts 8 --top-k 2 --token-router-top-k 2 --recover --recover-experts --train-text-file train.txt --eval-text-file eval.txt
 moe-forge adapters
 moe-forge inspect <model-path> --json
 moe-forge preflight --model <model-path> --recipe recipe.json --wrapper wrapper --output preflight-report.json
@@ -44,6 +44,9 @@ moe-forge recovery-validate --source-wrapper wrapper --recovered-wrapper recover
 moe-forge recovery-experiment --config recovery-experiment.json --output-dir recovery-experiment
 moe-forge recovery-compare recovery-a.json recovery-b.json --output recovery-compare.json --html-output recovery-compare.html
 moe-forge model-card --wrapper wrapper --eval-report eval-report.json --recovery-report recovery-experiment/recovery-experiment-report.json --validation-report recovery-experiment/recovered-wrapper-validation.json --output MODEL_CARD.md
+moe-forge benchmark-plan --source-model HuggingFaceTB/SmolLM-135M --moe-model recovered-wrapper --suite smollm-base --output benchmark-plan.json
+moe-forge benchmark-plan --source-model HuggingFaceTB/SmolLM-135M-Instruct --moe-model recovered-wrapper --suite smollm-instruct --output instruct-benchmark-plan.json
+moe-forge benchmark-compare --dense-report benchmarks/smollm-base/dense/results.json --moe-report benchmarks/smollm-base/moe/results.json --suite smollm-base --output benchmark-compare.json
 moe-forge publish-check --wrapper recovered-wrapper --eval-report eval-all.json --eval-report eval-learned-router.json --recovery-report recovery-experiment-report.json --validation-report recovered-wrapper-validation.json --require-recovery
 moe-forge smoke-assert --run-dir . --output smoke-assertions.json
 ```
@@ -117,6 +120,8 @@ Current evaluation support includes:
 - recovered-wrapper validation that reloads package metadata, checks checkpoint/export compatibility, validates router safetensors, proves native AutoModel loading, and compares original vs recovered safetensors metadata
 - recovery experiment orchestration that runs before/after eval batches around recovery and writes JSON/HTML comparison reports with validation and router-export evidence
 - Markdown model-card generation from wrapper metadata plus eval, router-activity, recovery, router-export, validation, and reproduction-command artifacts
+- benchmark-plan artifacts for SmolLM base and instruct checkpoints, using source-aligned LightEval task suites and dense-vs-MoE comparison gates
+- benchmark-compare JSON reports that rank dense retention by average score, core-task drop, and core-task retention
 - agent-friendly preflight JSON reports with readiness checks, blockers, warnings, and suggested next commands
 - smoke assertions that verify tiny HF recipe artifacts, quality metrics, recovered-wrapper validation, and report links
 

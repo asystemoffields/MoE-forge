@@ -50,6 +50,7 @@ class ConversionRunOptions:
     eval_atol: float = 1e-5
     eval_rtol: float = 1e-5
     recover: bool = False
+    recover_experts: bool = False
     train_text: str | None = None
     train_text_file: Path | None = None
     train_input_ids_json: str | None = None
@@ -419,7 +420,7 @@ def _recovery_experiment_config(
         },
         "train": train,
         "recovery": {
-            "trainable": {"experts": False, "router": True, "shared": False, "dense_backbone": False},
+            "trainable": {"experts": options.recover_experts, "router": True, "shared": False, "dense_backbone": False},
             "loss": {"teacher_kl_weight": 1.0, "logits_mse_weight": 0.0, "router_balance_weight": 0.01},
             "optimizer": {"learning_rate": 5e-5, "weight_decay": 0.0},
             "schedule": {
@@ -528,6 +529,7 @@ def _options_payload(options: ConversionRunOptions) -> dict[str, Any]:
         "eval_atol": options.eval_atol,
         "eval_rtol": options.eval_rtol,
         "recover": options.recover,
+        "recover_experts": options.recover_experts,
         "train_text": options.train_text,
         "train_text_file": str(options.train_text_file) if options.train_text_file is not None else None,
         "train_input_ids_json": options.train_input_ids_json,
@@ -573,6 +575,10 @@ def _reproduction_commands(options: ConversionRunOptions, *, output_dir: Path) -
         parts.extend(["--token-router-top-k", str(options.token_router_top_k)])
     if options.eval_smoke:
         parts.append("--eval-smoke")
+    if options.recover:
+        parts.append("--recover")
+    if options.recover_experts:
+        parts.append("--recover-experts")
     if not options.copy_source_model:
         parts.append("--skip-source-model-copy")
     return [" ".join(parts)]

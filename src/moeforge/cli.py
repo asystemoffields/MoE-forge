@@ -8,6 +8,12 @@ from typing import Any
 
 from .adapters import ADAPTERS
 from .batch import run_eval_batch
+from .benchmark import (
+    BenchmarkCompareOptions,
+    BenchmarkPlanOptions,
+    compare_benchmark_reports,
+    write_benchmark_plan,
+)
 from .carve import build_carve_manifest
 from .conversion import ConversionRunOptions, run_conversion
 from .evaluation import evaluate_hf_dense_vs_carved
@@ -51,6 +57,10 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_convert(args)
         if args.command == "publish-check":
             return _cmd_publish_check(args)
+        if args.command == "benchmark-plan":
+            return _cmd_benchmark_plan(args)
+        if args.command == "benchmark-compare":
+            return _cmd_benchmark_compare(args)
         if args.command == "profile":
             return _cmd_profile(args)
         if args.command == "carve-manifest":
@@ -162,6 +172,7 @@ def build_parser() -> argparse.ArgumentParser:
     convert_parser.add_argument("--eval-atol", type=float, default=1e-5, help="Absolute allclose tolerance for smoke eval.")
     convert_parser.add_argument("--eval-rtol", type=float, default=1e-5, help="Relative allclose tolerance for smoke eval.")
     convert_parser.add_argument("--recover", action="store_true", help="Run recovery training, export a recovered wrapper, and publish-check it.")
+    convert_parser.add_argument("--recover-experts", action="store_true", help="Also train carved expert tensors during recovery.")
     convert_parser.add_argument("--train-text", help="Inline training text for recovery.")
     convert_parser.add_argument("--train-text-file", type=Path, help="Training text file for recovery; blank lines split samples.")
     convert_parser.add_argument("--train-input-ids-json", help="Recovery train token ids JSON, such as [[1,2,3]].")
@@ -191,6 +202,60 @@ def build_parser() -> argparse.ArgumentParser:
     publish_parser.add_argument("--skip-native-load", action="store_true", help="Skip native AutoModel load check.")
     publish_parser.add_argument("--output", type=Path, default=Path("publish-readiness.json"), help="Publish readiness JSON output path.")
     publish_parser.add_argument("--print", action="store_true", help="Also print the publish readiness report JSON.")
+
+    benchmark_plan_parser = subparsers.add_parser(
+        "benchmark-plan",
+        help="Write a reproducible dense-vs-MoE benchmark plan for a source checkpoint.",
+    )
+    benchmark_plan_parser.add_argument("--source-model", required=True, help="Dense source model path or HF model id.")
+    benchmark_plan_parser.add_argument("--moe-model", required=True, help="MoE wrapper path or HF model id.")
+    benchmark_plan_parser.add_argument(
+        "--suite",
+        choices=["smollm-base", "smollm-instruct"],
+        default="smollm-base",
+        help="Benchmark suite matched to the source checkpoint family.",
+    )
+    benchmark_plan_parser.add_argument(
+        "--output",
+        type=Path,
+        default=Path("benchmark-plan.json"),
+        help="Benchmark plan JSON output path.",
+    )
+    benchmark_plan_parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=None,
+        help="Directory expected to hold raw benchmark outputs.",
+    )
+    benchmark_plan_parser.add_argument("--max-samples", type=int, default=1000, help="Max samples per task.")
+    benchmark_plan_parser.add_argument("--batch-size", type=int, default=16, help="Harness batch size.")
+    benchmark_plan_parser.add_argument(
+        "--custom-tasks-path",
+        default="lighteval_tasks.py",
+        help="Path to the SmolLM/Cosmopedia LightEval custom tasks file.",
+    )
+    benchmark_plan_parser.add_argument("--no-gsm8k", action="store_true", help="Omit GSM8K from the task list.")
+    benchmark_plan_parser.add_argument("--use-chat-template", action="store_true", help="Use chat templates for both dense and MoE runs.")
+    benchmark_plan_parser.add_argument("--print", action="store_true", help="Also print the benchmark plan JSON.")
+
+    benchmark_compare_parser = subparsers.add_parser(
+        "benchmark-compare",
+        help="Compare dense and MoE benchmark JSON outputs and apply a release-quality gate.",
+    )
+    benchmark_compare_parser.add_argument("--dense-report", type=Path, required=True, help="Dense benchmark result JSON.")
+    benchmark_compare_parser.add_argument("--moe-report", type=Path, required=True, help="MoE benchmark result JSON.")
+    benchmark_compare_parser.add_argument(
+        "--suite",
+        choices=["smollm-base", "smollm-instruct"],
+        default="smollm-base",
+        help="Benchmark suite used for the run.",
+    )
+    benchmark_compare_parser.add_argument("--output", type=Path, required=True, help="Comparison JSON output path.")
+    benchmark_compare_parser.add_argument("--max-average-drop", type=float, default=0.05, help="Max allowed average absolute score drop.")
+    benchmark_compare_parser.add_argument("--max-core-drop", type=float, default=0.08, help="Max allowed single core-task score drop.")
+    benchmark_compare_parser.add_argument("--min-average-retention", type=float, default=0.95, help="Min allowed average score retention.")
+    benchmark_compare_parser.add_argument("--min-core-retention", type=float, default=0.90, help="Min allowed worst core-task retention.")
+    benchmark_compare_parser.add_argument("--print", action="store_true", help="Also print the comparison JSON.")
 
     plan_parser = subparsers.add_parser("plan", help="Create a dense-to-MoE conversion recipe.")
     plan_parser.add_argument("model", help="Path to a model folder, config.json, GGUF file, or HF model id.")
@@ -546,6 +611,7 @@ def _cmd_convert(args: argparse.Namespace) -> int:
             eval_atol=args.eval_atol,
             eval_rtol=args.eval_rtol,
             recover=args.recover,
+            recover_experts=args.recover_experts,
             train_text=args.train_text,
             train_text_file=args.train_text_file,
             train_input_ids_json=args.train_input_ids_json,
@@ -579,6 +645,48 @@ def _cmd_publish_check(args: argparse.Namespace) -> int:
         max_sparse_teacher_kl=args.max_sparse_teacher_kl,
         max_sparse_nll_delta=args.max_sparse_nll_delta,
         trust_remote_code_load=not args.skip_native_load,
+    )
+    if args.print:
+        print(json.dumps(report, indent=2, sort_keys=True))
+    else:
+        print(f"{report['status']}; wrote {args.output}")
+    return 0 if report.get("passed") else 1
+
+
+def _cmd_benchmark_plan(args: argparse.Namespace) -> int:
+    report = write_benchmark_plan(
+        BenchmarkPlanOptions(
+            source_model=args.source_model,
+            moe_model=args.moe_model,
+            output_path=args.output,
+            suite=args.suite,
+            output_dir=args.output_dir or Path("benchmarks") / args.suite,
+            max_samples=args.max_samples,
+            batch_size=args.batch_size,
+            custom_tasks_path=args.custom_tasks_path,
+            include_gsm8k=not args.no_gsm8k,
+            use_chat_template=args.use_chat_template,
+        )
+    )
+    if args.print:
+        print(json.dumps(report, indent=2, sort_keys=True))
+    else:
+        print(f"wrote {args.output}")
+    return 0
+
+
+def _cmd_benchmark_compare(args: argparse.Namespace) -> int:
+    report = compare_benchmark_reports(
+        BenchmarkCompareOptions(
+            dense_report=args.dense_report,
+            moe_report=args.moe_report,
+            output_path=args.output,
+            suite=args.suite,
+            max_average_drop=args.max_average_drop,
+            max_core_drop=args.max_core_drop,
+            min_average_retention=args.min_average_retention,
+            min_core_retention=args.min_core_retention,
+        )
     )
     if args.print:
         print(json.dumps(report, indent=2, sort_keys=True))
