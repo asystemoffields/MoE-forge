@@ -21,7 +21,7 @@ The first implementation slice focuses on reliable inspection and recipe plannin
 ## Current Commands
 
 ```powershell
-moe-forge convert C:\models\gemma --output-dir gemma-moe-run --moe-layers all --experts 8 --top-k 2 --token-router-top-k 2 --eval-smoke
+moe-forge convert C:\models\gemma --output-dir gemma-moe-run --moe-layers all --experts 8 --top-k 2 --token-router-top-k 2 --recover --train-text-file train.txt --eval-text-file eval.txt
 moe-forge adapters
 moe-forge inspect <model-path> --json
 moe-forge preflight --model <model-path> --recipe recipe.json --wrapper wrapper --output preflight-report.json
@@ -44,6 +44,7 @@ moe-forge recovery-validate --source-wrapper wrapper --recovered-wrapper recover
 moe-forge recovery-experiment --config recovery-experiment.json --output-dir recovery-experiment
 moe-forge recovery-compare recovery-a.json recovery-b.json --output recovery-compare.json --html-output recovery-compare.html
 moe-forge model-card --wrapper wrapper --eval-report eval-report.json --recovery-report recovery-experiment/recovery-experiment-report.json --validation-report recovery-experiment/recovered-wrapper-validation.json --output MODEL_CARD.md
+moe-forge publish-check --wrapper recovered-wrapper --eval-report eval-all.json --eval-report eval-learned-router.json --recovery-report recovery-experiment-report.json --validation-report recovered-wrapper-validation.json --require-recovery
 moe-forge smoke-assert --run-dir . --output smoke-assertions.json
 ```
 
@@ -96,6 +97,8 @@ Current wrapper support includes:
 Current evaluation support includes:
 
 - single-command dense-to-MoE conversion runs that write recipe, manifest, carved tensors, native wrapper package, model card, preflight reports, and optional smoke eval artifacts
+- optional conversion recovery runs that train learned token routers, export recovered wrappers, validate reloadability, regenerate the model card, and emit publish-readiness JSON
+- publish-readiness checks for package files, native HF loading, all-expert reconstruction or teacher-KL parity, sparse routing eval evidence, recovery evidence, validation evidence, and configurable KL/NLL thresholds
 - dense-vs-carved HF logits parity reports
 - per-sample max/mean absolute error and latency
 - per-layer dense/all-expert/selected-expert attribution

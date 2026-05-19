@@ -16,6 +16,7 @@ from .materialize import materialize_carve_manifest
 from .model_card import write_model_card
 from .planner import PlanOptions, plan_conversion
 from .preflight import run_preflight
+from .publish import check_publish_readiness
 from .profiling import ProfileOptions, load_calibration_texts, profile_hf_model
 from .recovery_compare import write_recovery_comparison_report
 from .reports import (
@@ -48,6 +49,8 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_preflight(args)
         if args.command == "convert":
             return _cmd_convert(args)
+        if args.command == "publish-check":
+            return _cmd_publish_check(args)
         if args.command == "profile":
             return _cmd_profile(args)
         if args.command == "carve-manifest":
@@ -158,7 +161,36 @@ def build_parser() -> argparse.ArgumentParser:
     convert_parser.add_argument("--eval-sequence-length", type=int, default=128, help="Generated smoke input length cap.")
     convert_parser.add_argument("--eval-atol", type=float, default=1e-5, help="Absolute allclose tolerance for smoke eval.")
     convert_parser.add_argument("--eval-rtol", type=float, default=1e-5, help="Relative allclose tolerance for smoke eval.")
+    convert_parser.add_argument("--recover", action="store_true", help="Run recovery training, export a recovered wrapper, and publish-check it.")
+    convert_parser.add_argument("--train-text", help="Inline training text for recovery.")
+    convert_parser.add_argument("--train-text-file", type=Path, help="Training text file for recovery; blank lines split samples.")
+    convert_parser.add_argument("--train-input-ids-json", help="Recovery train token ids JSON, such as [[1,2,3]].")
+    convert_parser.add_argument("--eval-text", help="Inline eval text for recovery and publish evidence.")
+    convert_parser.add_argument("--eval-text-file", type=Path, help="Eval text file; blank lines split samples.")
+    convert_parser.add_argument("--eval-input-ids-json", help="Recovery eval token ids JSON, such as [[1,2,3]].")
+    convert_parser.add_argument("--max-all-expert-error", type=float, default=1e-4, help="Publish-check max all-expert reconstruction error.")
+    convert_parser.add_argument("--max-all-expert-teacher-kl", type=float, default=0.01, help="Publish-check max all-expert teacher-KL fallback.")
+    convert_parser.add_argument("--max-sparse-teacher-kl", type=float, help="Publish-check max sparse teacher-KL.")
+    convert_parser.add_argument("--max-sparse-nll-delta", type=float, help="Publish-check max sparse NLL delta.")
     convert_parser.add_argument("--print", action="store_true", help="Also print the conversion report JSON.")
+
+    publish_parser = subparsers.add_parser(
+        "publish-check",
+        help="Check whether a wrapper package has the evidence expected for HF publication.",
+    )
+    publish_parser.add_argument("--wrapper", type=Path, required=True, help="Wrapper or recovered-wrapper package directory.")
+    publish_parser.add_argument("--eval-report", type=Path, action="append", default=[], help="Eval JSON report. Can be supplied multiple times.")
+    publish_parser.add_argument("--recovery-report", type=Path, help="Recovery experiment JSON report.")
+    publish_parser.add_argument("--validation-report", type=Path, help="Recovered-wrapper validation JSON report.")
+    publish_parser.add_argument("--require-recovery", action="store_true", help="Require recovery and validation evidence.")
+    publish_parser.add_argument("--allow-missing-sparse-eval", action="store_true", help="Do not block when sparse eval reports are absent.")
+    publish_parser.add_argument("--max-all-expert-error", type=float, default=1e-4, help="Max all-expert reconstruction error.")
+    publish_parser.add_argument("--max-all-expert-teacher-kl", type=float, default=0.01, help="Max all-expert teacher-KL fallback.")
+    publish_parser.add_argument("--max-sparse-teacher-kl", type=float, help="Max sparse teacher-KL.")
+    publish_parser.add_argument("--max-sparse-nll-delta", type=float, help="Max sparse NLL delta.")
+    publish_parser.add_argument("--skip-native-load", action="store_true", help="Skip native AutoModel load check.")
+    publish_parser.add_argument("--output", type=Path, default=Path("publish-readiness.json"), help="Publish readiness JSON output path.")
+    publish_parser.add_argument("--print", action="store_true", help="Also print the publish readiness report JSON.")
 
     plan_parser = subparsers.add_parser("plan", help="Create a dense-to-MoE conversion recipe.")
     plan_parser.add_argument("model", help="Path to a model folder, config.json, GGUF file, or HF model id.")
@@ -513,12 +545,45 @@ def _cmd_convert(args: argparse.Namespace) -> int:
             eval_sequence_length=args.eval_sequence_length,
             eval_atol=args.eval_atol,
             eval_rtol=args.eval_rtol,
+            recover=args.recover,
+            train_text=args.train_text,
+            train_text_file=args.train_text_file,
+            train_input_ids_json=args.train_input_ids_json,
+            eval_text=args.eval_text,
+            eval_text_file=args.eval_text_file,
+            eval_input_ids_json=args.eval_input_ids_json,
+            max_all_expert_error=args.max_all_expert_error,
+            max_all_expert_teacher_kl=args.max_all_expert_teacher_kl,
+            max_sparse_teacher_kl=args.max_sparse_teacher_kl,
+            max_sparse_nll_delta=args.max_sparse_nll_delta,
         )
     )
     if args.print:
         print(json.dumps(report, indent=2, sort_keys=True))
     else:
         print(f"{report['status']}; wrote {report['artifacts']['convert_report']}")
+    return 0 if report.get("passed") else 1
+
+
+def _cmd_publish_check(args: argparse.Namespace) -> int:
+    report = check_publish_readiness(
+        wrapper=args.wrapper,
+        output_path=args.output,
+        eval_reports=args.eval_report,
+        recovery_report=args.recovery_report,
+        validation_report=args.validation_report,
+        require_recovery=args.require_recovery,
+        require_sparse_eval=not args.allow_missing_sparse_eval,
+        max_all_expert_error=args.max_all_expert_error,
+        max_all_expert_teacher_kl=args.max_all_expert_teacher_kl,
+        max_sparse_teacher_kl=args.max_sparse_teacher_kl,
+        max_sparse_nll_delta=args.max_sparse_nll_delta,
+        trust_remote_code_load=not args.skip_native_load,
+    )
+    if args.print:
+        print(json.dumps(report, indent=2, sort_keys=True))
+    else:
+        print(f"{report['status']}; wrote {args.output}")
     return 0 if report.get("passed") else 1
 
 

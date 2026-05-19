@@ -112,4 +112,6 @@ def _split_evenly(total: int, parts: int, *, alignment: int) -> list[int]:
 def _align(value: int, alignment: int) -> int:
     if value <= 0:
         return 0
+    if value < alignment:
+        return value
     return max(alignment, (value // alignment) * alignment)

@@ -32,20 +32,33 @@ def test_convert_cli_builds_native_wrapper_package(tmp_path: Path) -> None:
             "0.25",
             "--token-router-top-k",
             "1",
+            "--recover",
+            "--recover-steps",
+            "1",
+            "--train-input-ids-json",
+            "[[1,2,3,4]]",
+            "--eval-input-ids-json",
+            "[[1,2,3,4]]",
+            "--eval-expert-mode",
+            "all",
+            "--eval-expert-mode",
+            "learned-router",
         ]
     )
 
     report = json.loads((run_dir / "convert-report.json").read_text(encoding="utf-8"))
-    loaded = transformers.AutoModelForCausalLM.from_pretrained(run_dir / "wrapper")
+    loaded = transformers.AutoModelForCausalLM.from_pretrained(run_dir / "recovery-experiment" / "recovered-wrapper")
 
     assert status == 0
     assert report["format"] == "moeforge_conversion_run"
-    assert report["status"] == "completed"
+    assert report["status"] == "publish_ready"
     assert report["preflight"]["status"] == "ready"
-    assert report["artifacts"]["wrapper"] == str(run_dir / "wrapper")
-    assert (run_dir / "wrapper" / "config.json").exists()
+    assert report["publish_readiness"]["status"] == "ready"
+    assert report["artifacts"]["recovered_wrapper"] == str(run_dir / "recovery-experiment" / "recovered-wrapper")
+    assert (run_dir / "publish-readiness.json").exists()
+    assert (run_dir / "recovery-experiment" / "recovered-wrapper" / "config.json").exists()
     assert (run_dir / "wrapper" / "source-model" / "config.json").exists()
-    assert (run_dir / "wrapper" / "MODEL_CARD.md").exists()
+    assert (run_dir / "recovery-experiment" / "recovered-wrapper" / "MODEL_CARD.md").exists()
     assert loaded.config.model_type == "moeforge_carved_moe"
 
 

@@ -13,7 +13,9 @@ from .materialize import materialize_carve_manifest
 from .model_card import write_model_card
 from .planner import PlanOptions, plan_conversion
 from .preflight import run_preflight
+from .publish import check_publish_readiness
 from .recipe import recipe_to_dict
+from .recovery_experiment import run_recovery_experiment
 from .runtime import verify_carved_artifact
 from .wrapper import export_wrapper_package
 
@@ -47,10 +49,21 @@ class ConversionRunOptions:
     eval_sequence_length: int = 128
     eval_atol: float = 1e-5
     eval_rtol: float = 1e-5
+    recover: bool = False
+    train_text: str | None = None
+    train_text_file: Path | None = None
+    train_input_ids_json: str | None = None
+    eval_text: str | None = None
+    eval_text_file: Path | None = None
+    eval_input_ids_json: str | None = None
+    max_all_expert_error: float = 1e-4
+    max_all_expert_teacher_kl: float = 0.01
+    max_sparse_teacher_kl: float | None = None
+    max_sparse_nll_delta: float | None = None
 
 
 def run_conversion(options: ConversionRunOptions) -> dict[str, Any]:
-    output_dir = options.output_dir
+    output_dir = options.output_dir.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
     stages: list[dict[str, Any]] = []
     artifacts: dict[str, Any] = {"output_dir": str(output_dir)}
@@ -185,17 +198,61 @@ def run_conversion(options: ConversionRunOptions) -> dict[str, Any]:
     if eval_reports:
         artifacts["eval_reports"] = [str(path) for path in eval_reports]
 
-    model_card_path = wrapper_dir / "MODEL_CARD.md"
+    recovery_report_path: Path | None = None
+    validation_report_path: Path | None = None
+    publish_wrapper_dir = wrapper_dir
+    if options.recover:
+        recovery = _run_recovery(
+            options=options,
+            model_ref=model_ref,
+            wrapper_dir=wrapper_dir,
+            output_dir=output_dir,
+            stages=stages,
+            artifacts=artifacts,
+            warnings=warnings,
+        )
+        recovery_report_path = recovery["recovery_report_path"]
+        validation_report_path = recovery["validation_report_path"]
+        publish_wrapper_dir = recovery["recovered_wrapper"]
+        eval_reports = recovery["after_eval_reports"]
+
+    model_card_path = publish_wrapper_dir / "MODEL_CARD.md"
     write_model_card(
-        wrapper_dir=wrapper_dir,
+        wrapper_dir=publish_wrapper_dir,
         output_path=model_card_path,
         eval_reports=eval_reports,
-        recovery_reports=[],
-        validation_reports=[],
+        recovery_reports=[recovery_report_path] if recovery_report_path is not None else [],
+        validation_reports=[validation_report_path] if validation_report_path is not None else [],
         commands=_reproduction_commands(options, output_dir=output_dir),
     )
     artifacts["model_card"] = str(model_card_path)
     _stage(stages, "model-card", "completed", {"model_card": str(model_card_path)})
+
+    publish_path = output_dir / "publish-readiness.json"
+    publish_report = check_publish_readiness(
+        wrapper=publish_wrapper_dir,
+        output_path=publish_path,
+        eval_reports=eval_reports,
+        recovery_report=recovery_report_path,
+        validation_report=validation_report_path,
+        require_recovery=options.recover,
+        max_all_expert_error=options.max_all_expert_error,
+        max_all_expert_teacher_kl=options.max_all_expert_teacher_kl,
+        max_sparse_teacher_kl=options.max_sparse_teacher_kl,
+        max_sparse_nll_delta=options.max_sparse_nll_delta,
+    )
+    artifacts["publish_readiness"] = str(publish_path)
+    _stage(
+        stages,
+        "publish-check",
+        "completed",
+        {
+            "status": publish_report["status"],
+            "failed_check_count": publish_report["failed_check_count"],
+            "warning_count": publish_report["warning_count"],
+            "report": str(publish_path),
+        },
+    )
 
     final_preflight_path = output_dir / "preflight-final.json"
     final_preflight = run_preflight(
@@ -204,13 +261,13 @@ def run_conversion(options: ConversionRunOptions) -> dict[str, Any]:
         profile=options.profile,
         manifest=manifest_path,
         artifact=artifact_path,
-        wrapper=wrapper_dir,
+        wrapper=publish_wrapper_dir,
         output_path=final_preflight_path,
     )
     artifacts["preflight_final"] = str(final_preflight_path)
     _stage(stages, "preflight-final", "completed", {"status": final_preflight["status"]})
 
-    status = "completed" if verify_report.passed and final_preflight.get("passed") else "needs_attention"
+    status = "publish_ready" if verify_report.passed and final_preflight.get("passed") and publish_report.get("passed") else "needs_attention"
     return _conversion_report(
         status=status,
         options=options,
@@ -218,6 +275,7 @@ def run_conversion(options: ConversionRunOptions) -> dict[str, Any]:
         artifacts=artifacts,
         warnings=warnings,
         preflight=final_preflight,
+        publish=publish_report,
         eval_reports=eval_reports,
         output_dir=output_dir,
     )
@@ -267,6 +325,141 @@ def _run_optional_smoke_evals(
     return reports
 
 
+def _run_recovery(
+    *,
+    options: ConversionRunOptions,
+    model_ref: str,
+    wrapper_dir: Path,
+    output_dir: Path,
+    stages: list[dict[str, Any]],
+    artifacts: dict[str, Any],
+    warnings: list[str],
+) -> dict[str, Any]:
+    recovery_dir = output_dir / "recovery-experiment"
+    recovery_config_path = output_dir / "recovery-experiment-config.json"
+    recovery_config = _recovery_experiment_config(
+        options=options,
+        model_ref=model_ref,
+        wrapper_dir=wrapper_dir,
+        recovery_dir=recovery_dir,
+        warnings=warnings,
+    )
+    _write_json(recovery_config_path, recovery_config)
+    artifacts["recovery_config"] = str(recovery_config_path)
+    report = run_recovery_experiment(config_path=recovery_config_path, output_dir=recovery_dir)
+    recovery_report_path = Path(str(report["artifacts"]["json_report"]))
+    validation_report_path = Path(str(report["artifacts"]["recovered_wrapper_validation"]))
+    recovered_wrapper = Path(str(report["recovered_wrapper"]))
+    after_eval_reports = _eval_report_paths(report.get("after_eval_batch"))
+    artifacts["recovery_report"] = str(recovery_report_path)
+    artifacts["validation_report"] = str(validation_report_path)
+    artifacts["recovered_wrapper"] = str(recovered_wrapper)
+    artifacts["after_recovery_eval_reports"] = [str(path) for path in after_eval_reports]
+    _stage(
+        stages,
+        "recovery-experiment",
+        "completed",
+        {
+            "report": str(recovery_report_path),
+            "recovered_wrapper": str(recovered_wrapper),
+            "validation": report["summary"].get("recovered_wrapper_validation_status"),
+            "steps_completed": report["summary"].get("steps_completed"),
+        },
+    )
+    return {
+        "recovery_report_path": recovery_report_path,
+        "validation_report_path": validation_report_path,
+        "recovered_wrapper": recovered_wrapper,
+        "after_eval_reports": after_eval_reports,
+    }
+
+
+def _recovery_experiment_config(
+    *,
+    options: ConversionRunOptions,
+    model_ref: str,
+    wrapper_dir: Path,
+    recovery_dir: Path,
+    warnings: list[str],
+) -> dict[str, Any]:
+    train = _sample_config(
+        text=options.train_text,
+        text_file=options.train_text_file,
+        input_ids_json=options.train_input_ids_json,
+        sequence_length=options.eval_sequence_length,
+    )
+    eval_samples = _sample_config(
+        text=options.eval_text,
+        text_file=options.eval_text_file,
+        input_ids_json=options.eval_input_ids_json,
+        sequence_length=options.eval_sequence_length,
+    )
+    if not train:
+        train = {"input_ids": [_smoke_input_ids()], "sequence_length": options.eval_sequence_length}
+        warnings.append("recovery used deterministic smoke token ids because no train samples were provided")
+    if not eval_samples:
+        eval_samples = {"input_ids": [_smoke_input_ids()], "sequence_length": options.eval_sequence_length}
+        warnings.append("recovery eval used deterministic smoke token ids because no eval samples were provided")
+    modes = options.eval_expert_modes or ["all"]
+    if options.token_router_top_k is not None and "learned-router" not in modes:
+        modes = [*modes, "learned-router"]
+    steps = int(options.recover_steps or 25)
+    return {
+        "model": model_ref,
+        "wrapper": str(wrapper_dir),
+        "output_dir": str(recovery_dir),
+        "strict_validation": True,
+        "eval": {
+            **eval_samples,
+            "expert_modes": modes,
+            "device": options.eval_device,
+            "atol": options.eval_atol,
+            "rtol": options.eval_rtol,
+            "write_html": True,
+        },
+        "train": train,
+        "recovery": {
+            "trainable": {"experts": False, "router": True, "shared": False, "dense_backbone": False},
+            "loss": {"teacher_kl_weight": 1.0, "logits_mse_weight": 0.0, "router_balance_weight": 0.01},
+            "optimizer": {"learning_rate": 5e-5, "weight_decay": 0.0},
+            "schedule": {
+                "steps": steps,
+                "eval_every_steps": max(1, steps // 4),
+                "save_every_steps": steps,
+            },
+        },
+    }
+
+
+def _sample_config(
+    *,
+    text: str | None,
+    text_file: Path | None,
+    input_ids_json: str | None,
+    sequence_length: int,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {"sequence_length": sequence_length}
+    if text:
+        payload["text"] = text
+    if text_file is not None:
+        payload["text_file"] = str(text_file.resolve())
+    if input_ids_json:
+        payload["input_ids_json"] = input_ids_json
+    return payload if len(payload) > 1 else {}
+
+
+def _smoke_input_ids() -> list[int]:
+    return [1, 2, 3, 4, 5, 6, 7, 8]
+
+
+def _eval_report_paths(manifest: Any) -> list[Path]:
+    reports = []
+    for run in _dict(manifest).get("runs", []):
+        if isinstance(run, dict) and run.get("report_path"):
+            reports.append(Path(str(run["report_path"])))
+    return reports
+
+
 def _conversion_report(
     *,
     status: str,
@@ -275,13 +468,14 @@ def _conversion_report(
     artifacts: dict[str, Any],
     warnings: list[str],
     preflight: dict[str, Any],
+    publish: dict[str, Any] | None = None,
     eval_reports: list[Path],
     output_dir: Path,
 ) -> dict[str, Any]:
     report = {
         "format": "moeforge_conversion_run",
         "status": status,
-        "passed": status in {"completed", "dry_run"} and bool(preflight.get("passed")),
+        "passed": status in {"publish_ready", "dry_run"} and bool(preflight.get("passed")),
         "model": options.model,
         "output_dir": str(output_dir),
         "dry_run": options.dry_run,
@@ -294,6 +488,12 @@ def _conversion_report(
             "passed": preflight.get("passed"),
             "failed_check_count": preflight.get("failed_check_count"),
             "warning_count": preflight.get("warning_count"),
+        },
+        "publish_readiness": {
+            "status": publish.get("status") if publish else None,
+            "passed": publish.get("passed") if publish else None,
+            "failed_check_count": publish.get("failed_check_count") if publish else None,
+            "warning_count": publish.get("warning_count") if publish else None,
         },
         "eval_reports": [str(path) for path in eval_reports],
         "next_commands": _next_commands(status=status, artifacts=artifacts),
@@ -327,6 +527,17 @@ def _options_payload(options: ConversionRunOptions) -> dict[str, Any]:
         "eval_sequence_length": options.eval_sequence_length,
         "eval_atol": options.eval_atol,
         "eval_rtol": options.eval_rtol,
+        "recover": options.recover,
+        "train_text": options.train_text,
+        "train_text_file": str(options.train_text_file) if options.train_text_file is not None else None,
+        "train_input_ids_json": options.train_input_ids_json,
+        "eval_text": options.eval_text,
+        "eval_text_file": str(options.eval_text_file) if options.eval_text_file is not None else None,
+        "eval_input_ids_json": options.eval_input_ids_json,
+        "max_all_expert_error": options.max_all_expert_error,
+        "max_all_expert_teacher_kl": options.max_all_expert_teacher_kl,
+        "max_sparse_teacher_kl": options.max_sparse_teacher_kl,
+        "max_sparse_nll_delta": options.max_sparse_nll_delta,
     }
 
 
@@ -339,11 +550,12 @@ def _next_commands(*, status: str, artifacts: dict[str, Any]) -> list[str]:
         return [
             f"moe-forge convert {artifacts.get('model', '<model>')} --output-dir {artifacts.get('output_dir', 'moeforge-run')}"
         ]
-    wrapper = artifacts.get("wrapper")
+    wrapper = artifacts.get("recovered_wrapper") or artifacts.get("wrapper")
     commands = []
     if wrapper:
-        commands.append(f"python -c \"import moeforge; from transformers import AutoModelForCausalLM; AutoModelForCausalLM.from_pretrained(r'{wrapper}')\"")
+        commands.append(f"python -c \"from transformers import AutoModelForCausalLM; AutoModelForCausalLM.from_pretrained(r'{wrapper}', trust_remote_code=True)\"")
         commands.append(f"moe-forge preflight --wrapper {wrapper} --output {Path(str(wrapper)).parent / 'preflight-wrapper.json'}")
+        commands.append(f"moe-forge publish-check --wrapper {wrapper} --output {Path(str(wrapper)).parent / 'publish-readiness.json'}")
     return commands
 
 
@@ -390,6 +602,10 @@ def _read_json(path: Path) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ConversionRunError(f"expected JSON object in {path}")
     return payload
+
+
+def _dict(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
 
 
 def _unique(values: list[str]) -> list[str]:
