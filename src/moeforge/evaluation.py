@@ -5,7 +5,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from .hf_runtime import MoEForgeConfig, replace_hf_mlp_modules
+from .hf_runtime import MoEForgeCarvedMLPModule, MoEForgeConfig, replace_hf_mlp_modules
 from .router import select_expert_pool
 from .wrapper import load_router_plan, load_wrapper_config
 
@@ -38,6 +38,31 @@ class EvalActiveExperts:
 
 
 @dataclass(slots=True)
+class EvalLayerAttribution:
+    sample_index: int
+    layer: int
+    experts: list[int]
+    dense_vs_all_max_abs_error: float
+    dense_vs_all_mean_abs_error: float
+    dense_vs_selected_max_abs_error: float
+    dense_vs_selected_mean_abs_error: float
+    selected_vs_all_max_abs_error: float
+    selected_vs_all_mean_abs_error: float
+
+
+@dataclass(slots=True)
+class EvalSummary:
+    average_dense_latency_s: float
+    average_carved_latency_s: float
+    average_carved_vs_dense_latency_ratio: float | None
+    worst_sample_index: int | None
+    worst_sample_max_abs_error: float
+    worst_layer_sample_index: int | None
+    worst_layer: int | None
+    worst_layer_selected_vs_all_max_abs_error: float
+
+
+@dataclass(slots=True)
 class EvalReport:
     model: str
     package_dir: str
@@ -51,6 +76,8 @@ class EvalReport:
     rtol: float
     replacements: dict[str, Any]
     active_experts: list[EvalActiveExperts]
+    layer_attribution: list[EvalLayerAttribution]
+    summary: EvalSummary
     samples: list[EvalSample] = field(default_factory=list)
     memory: dict[str, Any] = field(default_factory=dict)
     package: dict[str, Any] = field(default_factory=dict)
@@ -92,6 +119,13 @@ def evaluate_hf_dense_vs_carved(
     dense.eval()
     carved.eval()
     replacements = replace_hf_mlp_modules(carved, package_path, config=hf_config)
+    replacement_payload = replacements.to_dict()
+    attribution_modules = _load_attribution_modules(
+        package_path=package_path,
+        config=hf_config,
+        replacements=replacement_payload,
+        torch=torch,
+    )
     prepared = _prepare_inputs(
         model=model,
         dense=dense,
@@ -105,6 +139,7 @@ def evaluate_hf_dense_vs_carved(
     )
 
     samples: list[EvalSample] = []
+    layer_attribution: list[EvalLayerAttribution] = []
     with torch.no_grad():
         for index, prepared_sample in enumerate(prepared):
             sample_experts = _active_experts_for_sample(
@@ -113,8 +148,12 @@ def evaluate_hf_dense_vs_carved(
                 sample=prepared_sample,
                 mode=expert_mode,
             )
-            dense_output, dense_latency = _timed_forward(dense, prepared_sample["inputs"], torch=torch)
-            _apply_default_experts(carved, replacements=replacements.to_dict(), experts_by_layer=sample_experts)
+            captures = _capture_dense_mlp_io(dense, replacements=replacement_payload)
+            try:
+                dense_output, dense_latency = _timed_forward(dense, prepared_sample["inputs"], torch=torch)
+            finally:
+                captures["close"]()
+            _apply_default_experts(carved, replacements=replacement_payload, experts_by_layer=sample_experts)
             carved_output, carved_latency = _timed_forward(carved, prepared_sample["inputs"], torch=torch)
             diff = (dense_output.logits - carved_output.logits).abs()
             allclose = bool(torch.allclose(dense_output.logits, carved_output.logits, atol=atol, rtol=rtol))
@@ -142,6 +181,14 @@ def evaluate_hf_dense_vs_carved(
                     active_experts=[asdict(record) for record in active_records],
                 )
             )
+            layer_attribution.extend(
+                _layer_attribution_for_sample(
+                    sample_index=index,
+                    captures=captures["records"],
+                    modules=attribution_modules,
+                    experts_by_layer=sample_experts,
+                )
+            )
 
     max_abs = max((sample.max_abs_error for sample in samples), default=0.0)
     mean_abs = float(sum(sample.mean_abs_error for sample in samples) / len(samples)) if samples else 0.0
@@ -166,8 +213,10 @@ def evaluate_hf_dense_vs_carved(
         mean_abs_error=mean_abs,
         atol=atol,
         rtol=rtol,
-        replacements=replacements.to_dict(),
+        replacements=replacement_payload,
         active_experts=active_expert_records,
+        layer_attribution=layer_attribution,
+        summary=_summary(samples=samples, layer_attribution=layer_attribution),
         samples=samples,
         memory=_memory_report(dense=dense, carved=carved, torch=torch, device=target_device),
         package=wrapper_config.to_dict(),
@@ -245,6 +294,134 @@ def _timed_forward(model: Any, inputs: dict[str, Any], *, torch: Any) -> tuple[A
     output = model(**inputs)
     _synchronize_if_cuda(torch)
     return output, time.perf_counter() - start
+
+
+def _load_attribution_modules(
+    *,
+    package_path: Path,
+    config: MoEForgeConfig,
+    replacements: dict[str, Any],
+    torch: Any,
+) -> dict[int, Any]:
+    modules = {}
+    for item in replacements.get("replaced", []):
+        layer = int(item["layer"])
+        module = MoEForgeCarvedMLPModule.from_package(package_path, layer=layer, config=config)
+        dtype = _dtype_from_string(item.get("dtype"), torch=torch)
+        device = torch.device(str(item.get("device") or "cpu"))
+        if dtype is None:
+            module = module.to(device=device)
+        else:
+            module = module.to(device=device, dtype=dtype)
+        modules[layer] = module
+    return modules
+
+
+def _capture_dense_mlp_io(model: Any, *, replacements: dict[str, Any]) -> dict[str, Any]:
+    records: dict[int, dict[str, Any]] = {}
+    handles = []
+
+    def make_hook(layer: int):
+        def hook(_module: Any, inputs: tuple[Any, ...], output: Any) -> None:
+            input_tensor = inputs[0] if inputs else None
+            output_tensor = output[0] if isinstance(output, tuple) else output
+            records[layer] = {
+                "input": input_tensor.detach(),
+                "output": output_tensor.detach(),
+            }
+
+        return hook
+
+    for item in replacements.get("replaced", []):
+        layer = int(item["layer"])
+        module = model.get_submodule(str(item["module_path"]))
+        handles.append(module.register_forward_hook(make_hook(layer)))
+
+    def close() -> None:
+        for handle in handles:
+            handle.remove()
+
+    return {"records": records, "close": close}
+
+
+def _layer_attribution_for_sample(
+    *,
+    sample_index: int,
+    captures: dict[int, dict[str, Any]],
+    modules: dict[int, Any],
+    experts_by_layer: dict[int, list[int]],
+) -> list[EvalLayerAttribution]:
+    records = []
+    for layer in sorted(modules):
+        captured = captures.get(layer)
+        if not captured:
+            continue
+        module = modules[layer]
+        buffer = next(module.buffers())
+        hidden = captured["input"].to(device=buffer.device, dtype=buffer.dtype)
+        dense_output = captured["output"].to(device=hidden.device, dtype=hidden.dtype)
+        experts = experts_by_layer[layer]
+        all_output = module.forward_all(hidden)
+        selected_output = module.forward_selected(hidden, experts=experts)
+        dense_all = _tensor_diff(dense_output, all_output)
+        dense_selected = _tensor_diff(dense_output, selected_output)
+        selected_all = _tensor_diff(selected_output, all_output)
+        records.append(
+            EvalLayerAttribution(
+                sample_index=sample_index,
+                layer=layer,
+                experts=experts,
+                dense_vs_all_max_abs_error=dense_all["max_abs_error"],
+                dense_vs_all_mean_abs_error=dense_all["mean_abs_error"],
+                dense_vs_selected_max_abs_error=dense_selected["max_abs_error"],
+                dense_vs_selected_mean_abs_error=dense_selected["mean_abs_error"],
+                selected_vs_all_max_abs_error=selected_all["max_abs_error"],
+                selected_vs_all_mean_abs_error=selected_all["mean_abs_error"],
+            )
+        )
+    return records
+
+
+def _summary(*, samples: list[EvalSample], layer_attribution: list[EvalLayerAttribution]) -> EvalSummary:
+    average_dense = _average([sample.dense_latency_s for sample in samples])
+    average_carved = _average([sample.carved_latency_s for sample in samples])
+    worst_sample = max(samples, key=lambda sample: sample.max_abs_error, default=None)
+    worst_layer = max(
+        layer_attribution,
+        key=lambda record: record.selected_vs_all_max_abs_error,
+        default=None,
+    )
+    return EvalSummary(
+        average_dense_latency_s=average_dense,
+        average_carved_latency_s=average_carved,
+        average_carved_vs_dense_latency_ratio=_latency_ratio(average_dense, average_carved),
+        worst_sample_index=worst_sample.index if worst_sample else None,
+        worst_sample_max_abs_error=worst_sample.max_abs_error if worst_sample else 0.0,
+        worst_layer_sample_index=worst_layer.sample_index if worst_layer else None,
+        worst_layer=worst_layer.layer if worst_layer else None,
+        worst_layer_selected_vs_all_max_abs_error=(
+            worst_layer.selected_vs_all_max_abs_error if worst_layer else 0.0
+        ),
+    )
+
+
+def _average(values: list[float]) -> float:
+    return float(sum(values) / len(values)) if values else 0.0
+
+
+def _tensor_diff(left: Any, right: Any) -> dict[str, float]:
+    diff = (left - right).abs()
+    return {
+        "max_abs_error": float(diff.max().item()) if diff.numel() else 0.0,
+        "mean_abs_error": float(diff.mean().item()) if diff.numel() else 0.0,
+    }
+
+
+def _dtype_from_string(value: Any, *, torch: Any) -> Any | None:
+    if value is None:
+        return None
+    name = str(value).replace("torch.", "")
+    return getattr(torch, name, None)
 
 
 def _normalize_expert_mode(expert_mode: str) -> str:

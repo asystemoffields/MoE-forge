@@ -32,6 +32,11 @@ def test_evaluate_hf_dense_vs_carved_reports_logits_parity(tmp_path: Path) -> No
     assert report.max_abs_error <= 1e-5
     assert payload["replacements"]["replaced"][0]["module_path"] == "model.layers.0.mlp"
     assert payload["active_experts"][0]["experts"] == [0, 1, 2]
+    assert len(payload["layer_attribution"]) == 4
+    assert payload["layer_attribution"][0]["dense_vs_all_max_abs_error"] <= 1e-6
+    assert payload["layer_attribution"][0]["selected_vs_all_max_abs_error"] <= 1e-6
+    assert payload["summary"]["average_carved_latency_s"] >= 0.0
+    assert payload["summary"]["worst_layer_selected_vs_all_max_abs_error"] <= 1e-6
     assert payload["memory"]["dense_parameter_count"] > 0
     assert payload["package"]["model_type"] == "moeforge_carved_moe"
 
@@ -79,6 +84,10 @@ def test_evaluate_hf_dense_vs_carved_reports_routed_subset_tradeoff(tmp_path: Pa
     assert payload["samples"][0]["expert_mode"] == "router"
     assert payload["samples"][0]["active_experts"][0]["mode"] == "router"
     assert payload["samples"][0]["carved_vs_dense_latency_ratio"] is not None
+    assert payload["layer_attribution"][0]["dense_vs_all_max_abs_error"] <= 1e-6
+    assert payload["layer_attribution"][0]["selected_vs_all_max_abs_error"] > 0.0
+    assert payload["summary"]["worst_layer"] in [0, 1]
+    assert payload["summary"]["worst_layer_selected_vs_all_max_abs_error"] > 0.0
 
 
 def test_evaluate_hf_dense_vs_carved_validates_input_ids(tmp_path: Path) -> None:
