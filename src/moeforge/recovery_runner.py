@@ -351,6 +351,7 @@ def _write_checkpoint(
     metadata = {
         "format": "moeforge_recovery_checkpoint",
         "step": step,
+        "metadata_path": str(metadata_path),
         "state_path": str(state_path),
         "plan_path": plan.get("artifacts", {}).get("plan_path"),
         "trainable_parameter_count": _parameter_count(trainable_parameters),

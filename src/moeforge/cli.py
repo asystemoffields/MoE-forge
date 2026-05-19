@@ -20,6 +20,7 @@ from .reports import (
     write_eval_html_report_payload,
 )
 from .recovery import write_recovery_plan
+from .recovery_experiment import run_recovery_experiment
 from .recovery_runner import export_recovered_wrapper, run_recovery
 from .recipe import recipe_to_dict
 from .router import build_router_plan
@@ -64,6 +65,8 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_recovery_run(args)
         if args.command == "recovery-export":
             return _cmd_recovery_export(args)
+        if args.command == "recovery-experiment":
+            return _cmd_recovery_experiment(args)
     except Exception as exc:  # pragma: no cover - CLI boundary
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -274,6 +277,24 @@ def build_parser() -> argparse.ArgumentParser:
         "--print",
         action="store_true",
         help="Also print the recovery export report JSON.",
+    )
+
+    recovery_experiment_parser = subparsers.add_parser(
+        "recovery-experiment",
+        help="Run before/after eval, recovery, export, and comparison from one config.",
+    )
+    recovery_experiment_parser.add_argument(
+        "--config",
+        type=Path,
+        required=True,
+        help="Recovery experiment JSON config.",
+    )
+    recovery_experiment_parser.add_argument("--output-dir", type=Path, help="Experiment output directory.")
+    recovery_experiment_parser.add_argument("--max-steps", type=int, help="Override planned recovery step count.")
+    recovery_experiment_parser.add_argument(
+        "--print",
+        action="store_true",
+        help="Also print the experiment report JSON.",
     )
 
     return parser
@@ -528,6 +549,19 @@ def _cmd_recovery_export(args: argparse.Namespace) -> int:
         print(json.dumps(report, indent=2, sort_keys=True))
     else:
         print(f"wrote {report['output_dir']}")
+    return 0
+
+
+def _cmd_recovery_experiment(args: argparse.Namespace) -> int:
+    report = run_recovery_experiment(
+        config_path=args.config,
+        output_dir=args.output_dir,
+        max_steps=args.max_steps,
+    )
+    if args.print:
+        print(json.dumps(report, indent=2, sort_keys=True))
+    else:
+        print(f"wrote {report['artifacts']['json_report']}")
     return 0
 
 
