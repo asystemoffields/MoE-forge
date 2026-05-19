@@ -94,9 +94,11 @@ def build_parser() -> argparse.ArgumentParser:
     profile_parser.add_argument("--dtype", default="auto", help="Model dtype: auto, fp32, fp16, bf16.")
     profile_parser.add_argument("--threshold", type=float, default=0.0, help="Absolute activation threshold for active-rate stats.")
     profile_parser.add_argument("--top-k-channels", type=int, default=32, help="Top channels to include per module.")
+    profile_parser.add_argument("--document-top-k-channels", type=int, default=8, help="Top channels to include per document/module.")
     profile_parser.add_argument("--experts", type=int, default=8, help="Experts per profiled FFN module for assignment suggestions.")
     profile_parser.add_argument("--shared-ratio", type=float, default=0.25, help="Shared-channel ratio for assignment suggestions.")
     profile_parser.add_argument("--include-vectors", action="store_true", help="Include full per-channel vectors in JSON.")
+    profile_parser.add_argument("--include-document-vectors", action="store_true", help="Include full per-document per-channel vectors in JSON.")
     profile_parser.add_argument("--output", type=Path, default=Path("activation-profile.json"), help="Profile output path.")
     profile_parser.add_argument("--print", action="store_true", help="Also print the profile JSON.")
 
@@ -194,7 +196,9 @@ def _cmd_profile(args: argparse.Namespace) -> int:
         dtype=args.dtype,
         threshold=args.threshold,
         include_vectors=args.include_vectors,
+        include_document_vectors=args.include_document_vectors,
         top_k_channels=args.top_k_channels,
+        document_top_k_channels=args.document_top_k_channels,
         experts=args.experts,
         shared_ratio=args.shared_ratio,
     )

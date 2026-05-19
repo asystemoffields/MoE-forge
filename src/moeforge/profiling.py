@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import hashlib
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -23,7 +24,9 @@ class ProfileOptions:
     dtype: str = "auto"
     threshold: float = 0.0
     include_vectors: bool = False
+    include_document_vectors: bool = False
     top_k_channels: int = 32
+    document_top_k_channels: int = 8
     experts: int = 8
     shared_ratio: float = 0.25
 
@@ -158,15 +161,19 @@ class ChannelStats:
 
 
 @dataclass(slots=True)
-class ActivationProfile:
-    model: str
-    adapter_family: str | None
-    samples: int
-    sequence_length: int
+class DocumentStats:
+    index: int
+    text_sha256: str
+    char_count: int
     module_stats: dict[str, ChannelStats] = field(default_factory=dict)
-    module_targets: dict[str, dict[str, Any]] = field(default_factory=dict)
-    missing_modules: list[dict[str, Any]] = field(default_factory=list)
-    warnings: list[str] = field(default_factory=list)
+
+    @classmethod
+    def from_text(cls, *, index: int, text: str) -> "DocumentStats":
+        return cls(
+            index=index,
+            text_sha256=hashlib.sha256(text.encode("utf-8")).hexdigest(),
+            char_count=len(text),
+        )
 
     def update(self, module_name: str, values: Any, *, threshold: float) -> None:
         stats = self.module_stats.get(module_name)
@@ -178,16 +185,83 @@ class ActivationProfile:
     def to_report(
         self,
         *,
+        module_targets: dict[str, dict[str, Any]],
         include_vectors: bool,
         top_k_channels: int,
         experts: int,
-        shared_ratio: float,
+        pool_size: int,
     ) -> dict[str, Any]:
+        module_reports = {
+            name: {
+                **stats.to_report(include_vectors=include_vectors, top_k_channels=top_k_channels),
+                "target": module_targets.get(name),
+            }
+            for name, stats in sorted(self.module_stats.items())
+        }
+        return {
+            "index": self.index,
+            "text_sha256": self.text_sha256,
+            "char_count": self.char_count,
+            "modules": module_reports,
+            "expert_pool": recommend_document_expert_pool(
+                module_reports=module_reports,
+                experts=experts,
+                pool_size=pool_size,
+            ),
+        }
+
+
+@dataclass(slots=True)
+class ActivationProfile:
+    model: str
+    adapter_family: str | None
+    samples: int
+    sequence_length: int
+    module_stats: dict[str, ChannelStats] = field(default_factory=dict)
+    module_targets: dict[str, dict[str, Any]] = field(default_factory=dict)
+    documents: list[DocumentStats] = field(default_factory=list)
+    missing_modules: list[dict[str, Any]] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+    _current_document_index: int | None = field(default=None, init=False)
+
+    def begin_document(self, *, index: int, text: str) -> None:
+        self.documents.append(DocumentStats.from_text(index=index, text=text))
+        self._current_document_index = len(self.documents) - 1
+
+    def end_document(self) -> None:
+        self._current_document_index = None
+
+    def update(self, module_name: str, values: Any, *, threshold: float) -> None:
+        stats = self.module_stats.get(module_name)
+        if stats is None:
+            stats = ChannelStats(threshold=threshold)
+            self.module_stats[module_name] = stats
+        stats.update(values)
+        if self._current_document_index is not None:
+            self.documents[self._current_document_index].update(
+                module_name,
+                values,
+                threshold=threshold,
+            )
+
+    def to_report(
+        self,
+        *,
+        include_vectors: bool,
+        top_k_channels: int,
+        include_document_vectors: bool,
+        document_top_k_channels: int,
+        experts: int,
+        shared_ratio: float,
+        document_pool_size: int | None = None,
+    ) -> dict[str, Any]:
+        document_pool_size = document_pool_size or min(2, experts)
         return {
             "model": self.model,
             "adapter_family": self.adapter_family,
             "samples": self.samples,
             "sequence_length": self.sequence_length,
+            "document_count": len(self.documents),
             "modules": {
                 name: {
                     **stats.to_report(include_vectors=include_vectors, top_k_channels=top_k_channels),
@@ -196,6 +270,16 @@ class ActivationProfile:
                 }
                 for name, stats in sorted(self.module_stats.items())
             },
+            "documents": [
+                document.to_report(
+                    module_targets=self.module_targets,
+                    include_vectors=include_document_vectors,
+                    top_k_channels=document_top_k_channels,
+                    experts=experts,
+                    pool_size=document_pool_size,
+                )
+                for document in self.documents
+            ],
             "missing_modules": self.missing_modules,
             "warnings": self.warnings,
         }
@@ -313,7 +397,7 @@ def profile_hf_model(
 
     try:
         with torch.no_grad():
-            for sample in texts[: options.max_samples]:
+            for sample_index, sample in enumerate(texts[: options.max_samples]):
                 inputs = tokenizer(
                     sample,
                     return_tensors="pt",
@@ -321,7 +405,11 @@ def profile_hf_model(
                     max_length=options.sequence_length,
                 )
                 inputs = {key: value.to(device) for key, value in inputs.items()}
-                model(**inputs)
+                profile.begin_document(index=sample_index, text=sample)
+                try:
+                    model(**inputs)
+                finally:
+                    profile.end_document()
     finally:
         for hook in hooks:
             hook.remove()
@@ -329,9 +417,41 @@ def profile_hf_model(
     return profile.to_report(
         include_vectors=options.include_vectors,
         top_k_channels=options.top_k_channels,
+        include_document_vectors=options.include_document_vectors,
+        document_top_k_channels=options.document_top_k_channels,
         experts=options.experts,
         shared_ratio=options.shared_ratio,
+        document_pool_size=min(options.experts, max(1, options.top_k_channels // 8)),
     )
+
+
+def recommend_document_expert_pool(
+    *,
+    module_reports: dict[str, dict[str, Any]],
+    experts: int,
+    pool_size: int,
+) -> dict[str, Any]:
+    if experts <= 0:
+        raise ProfileError("experts must be positive")
+    pool_size = max(1, min(pool_size, experts))
+    scores = [0.0 for _ in range(experts)]
+    for module in module_reports.values():
+        top_channels = module.get("top_channels", [])
+        if not isinstance(top_channels, list):
+            continue
+        for item in top_channels:
+            if not isinstance(item, dict):
+                continue
+            channel = int(item.get("channel", 0))
+            score = float(item.get("mean_abs", 0.0))
+            scores[channel % experts] += score
+    selected = sorted(range(experts), key=lambda index: scores[index], reverse=True)[:pool_size]
+    return {
+        "method": "top_channel_mod_expert_score",
+        "experts": selected,
+        "pool_size": pool_size,
+        "scores": scores,
+    }
 
 
 def _make_hook(profile: ActivationProfile, module_name: str, *, threshold: float):

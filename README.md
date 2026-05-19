@@ -51,6 +51,8 @@ Current profiling includes:
 - hook-based FFN `gate`, `up`, and `down` activation capture
 - per-channel mean absolute activation, RMS, active rate, and positive rate
 - top-channel summaries with optional full vectors
+- per-document activation summaries with stable text hashes for EMO-style expert-pool analysis
+- first-pass document expert-pool recommendations for selected-subset routing experiments
 - first-pass shared/routed expert channel assignments from activation importance
 
 Current carving support includes:
