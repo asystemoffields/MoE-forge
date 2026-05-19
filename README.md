@@ -29,6 +29,7 @@ moe-forge router-plan --profile profile.json --pool-size 2 --output router-plan.
 moe-forge carve-manifest <model-path> --recipe recipe.json --profile profile.json --output carve-manifest.json
 moe-forge carve-apply --manifest carve-manifest.json --output-dir carved-artifact
 moe-forge carve-verify --manifest carve-manifest.json --artifact carved-artifact/carved-experts.safetensors
+moe-forge wrapper-export --manifest carve-manifest.json --artifact carved-artifact/carved-experts.safetensors --router-plan router-plan.json --output-dir wrapper
 ```
 
 Supported inputs:
@@ -62,6 +63,12 @@ Current routing support includes:
 - default expert-pool fallback from aggregate document scores
 - expert-pool selection by document index, text hash, or raw text hash
 - runtime integration for selected-subset carved MLP execution
+
+Current wrapper support includes:
+
+- `moeforge_config.json` package export for carved FFN artifacts
+- optional router-plan packaging
+- reloadable carved layer runtime from wrapper config
 
 Current carving support includes:
 

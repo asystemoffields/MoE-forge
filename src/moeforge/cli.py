@@ -15,6 +15,7 @@ from .profiling import ProfileOptions, load_calibration_texts, profile_hf_model
 from .recipe import recipe_to_dict
 from .router import build_router_plan
 from .runtime import verify_carved_artifact
+from .wrapper import export_wrapper_package
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -38,6 +39,8 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_carve_verify(args)
         if args.command == "router-plan":
             return _cmd_router_plan(args)
+        if args.command == "wrapper-export":
+            return _cmd_wrapper_export(args)
     except Exception as exc:  # pragma: no cover - CLI boundary
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -143,6 +146,18 @@ def build_parser() -> argparse.ArgumentParser:
     router_parser.add_argument("--pool-size", type=int, help="Experts to keep per document.")
     router_parser.add_argument("--output", type=Path, default=Path("router-plan.json"), help="Router plan output path.")
     router_parser.add_argument("--print", action="store_true", help="Also print the router plan JSON.")
+
+    wrapper_parser = subparsers.add_parser(
+        "wrapper-export",
+        help="Export a runnable MoE Forge wrapper package for carved FFN artifacts.",
+    )
+    wrapper_parser.add_argument("--manifest", type=Path, required=True, help="Carve manifest JSON.")
+    wrapper_parser.add_argument("--artifact", type=Path, required=True, help="carved-experts.safetensors path.")
+    wrapper_parser.add_argument("--router-plan", type=Path, help="Optional router-plan JSON.")
+    wrapper_parser.add_argument("--activation", default="silu", help="FFN activation: silu, gelu, or gelu_tanh.")
+    wrapper_parser.add_argument("--copy-artifact", action="store_true", help="Copy the safetensors artifact into the wrapper directory.")
+    wrapper_parser.add_argument("--output-dir", type=Path, required=True, help="Wrapper package output directory.")
+    wrapper_parser.add_argument("--print", action="store_true", help="Also print the wrapper config JSON.")
 
     return parser
 
@@ -283,6 +298,23 @@ def _cmd_router_plan(args: argparse.Namespace) -> int:
         print(json.dumps(payload, indent=2, sort_keys=True))
     else:
         print(f"wrote {args.output}")
+    return 0
+
+
+def _cmd_wrapper_export(args: argparse.Namespace) -> int:
+    config = export_wrapper_package(
+        manifest_path=args.manifest,
+        artifact_path=args.artifact,
+        output_dir=args.output_dir,
+        router_plan_path=args.router_plan,
+        activation=args.activation,
+        copy_artifact=args.copy_artifact,
+    )
+    payload = config.to_dict()
+    if args.print:
+        print(json.dumps(payload, indent=2, sort_keys=True))
+    else:
+        print(f"wrote {args.output_dir}")
     return 0
 
 
