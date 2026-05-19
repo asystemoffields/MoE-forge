@@ -8,6 +8,7 @@ from typing import Any
 
 from .adapters import ADAPTERS
 from .carve import build_carve_manifest
+from .evaluation import evaluate_hf_dense_vs_carved
 from .inspectors import inspect_model
 from .materialize import materialize_carve_manifest
 from .planner import PlanOptions, plan_conversion
@@ -41,6 +42,8 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_router_plan(args)
         if args.command == "wrapper-export":
             return _cmd_wrapper_export(args)
+        if args.command == "eval-hf":
+            return _cmd_eval_hf(args)
     except Exception as exc:  # pragma: no cover - CLI boundary
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -158,6 +161,22 @@ def build_parser() -> argparse.ArgumentParser:
     wrapper_parser.add_argument("--copy-artifact", action="store_true", help="Copy the safetensors artifact into the wrapper directory.")
     wrapper_parser.add_argument("--output-dir", type=Path, required=True, help="Wrapper package output directory.")
     wrapper_parser.add_argument("--print", action="store_true", help="Also print the wrapper config JSON.")
+
+    eval_parser = subparsers.add_parser(
+        "eval-hf",
+        help="Evaluate dense-vs-carved HF parity with a wrapper package.",
+    )
+    eval_parser.add_argument("model", help="Path to a local HF model folder.")
+    eval_parser.add_argument("--wrapper", type=Path, required=True, help="MoE Forge wrapper package directory.")
+    eval_parser.add_argument("--text", help="Inline evaluation text sample.")
+    eval_parser.add_argument("--text-file", type=Path, help="Evaluation text file; blank lines split samples.")
+    eval_parser.add_argument("--input-ids-json", help="JSON list of token id lists, such as [[1,2,3]].")
+    eval_parser.add_argument("--sequence-length", type=int, default=128, help="Tokenizer truncation length or generated smoke input length.")
+    eval_parser.add_argument("--device", default="cpu", help="Torch device: cpu, auto, cuda, cuda:0, etc.")
+    eval_parser.add_argument("--atol", type=float, default=1e-5, help="Absolute allclose tolerance for logits.")
+    eval_parser.add_argument("--rtol", type=float, default=1e-5, help="Relative allclose tolerance for logits.")
+    eval_parser.add_argument("--output", type=Path, default=Path("moeforge-eval-report.json"), help="Evaluation report output path.")
+    eval_parser.add_argument("--print", action="store_true", help="Also print the evaluation report JSON.")
 
     return parser
 
@@ -316,6 +335,39 @@ def _cmd_wrapper_export(args: argparse.Namespace) -> int:
     else:
         print(f"wrote {args.output_dir}")
     return 0
+
+
+def _cmd_eval_hf(args: argparse.Namespace) -> int:
+    texts = _load_optional_texts(text=args.text, text_file=args.text_file)
+    input_ids = json.loads(args.input_ids_json) if args.input_ids_json else None
+    report = evaluate_hf_dense_vs_carved(
+        model=args.model,
+        package_dir=args.wrapper,
+        texts=texts,
+        input_ids=input_ids,
+        sequence_length=args.sequence_length,
+        device=args.device,
+        atol=args.atol,
+        rtol=args.rtol,
+    )
+    payload = report.to_dict()
+    _write_json(args.output, payload)
+    if args.print:
+        print(json.dumps(payload, indent=2, sort_keys=True))
+    else:
+        status = "passed" if report.passed else "failed"
+        print(f"{status}; wrote {args.output}")
+    return 0 if report.passed else 1
+
+
+def _load_optional_texts(*, text: str | None, text_file: Path | None) -> list[str] | None:
+    samples: list[str] = []
+    if text:
+        samples.append(text)
+    if text_file:
+        content = text_file.read_text(encoding="utf-8")
+        samples.extend(chunk.strip() for chunk in content.split("\n\n") if chunk.strip())
+    return samples or None
 
 
 def _write_json(path: Path, payload: dict[str, Any]) -> None:

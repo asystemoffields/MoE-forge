@@ -30,6 +30,7 @@ moe-forge carve-manifest <model-path> --recipe recipe.json --profile profile.jso
 moe-forge carve-apply --manifest carve-manifest.json --output-dir carved-artifact
 moe-forge carve-verify --manifest carve-manifest.json --artifact carved-artifact/carved-experts.safetensors
 moe-forge wrapper-export --manifest carve-manifest.json --artifact carved-artifact/carved-experts.safetensors --router-plan router-plan.json --output-dir wrapper
+moe-forge eval-hf <model-path> --wrapper wrapper --output eval-report.json
 ```
 
 Supported inputs:
@@ -72,6 +73,12 @@ Current wrapper support includes:
 - reloadable carved layer runtime from wrapper config
 - PyTorch module loading for carved FFN layer parity and selected expert subsets
 - in-place FFN replacement for tiny HF causal-LM parity checks
+
+Current evaluation support includes:
+
+- dense-vs-carved HF logits parity reports
+- per-sample max/mean absolute error and latency
+- replacement metadata, active expert records, memory notes, warnings, and package metadata
 
 Current carving support includes:
 
