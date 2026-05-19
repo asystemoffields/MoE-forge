@@ -32,6 +32,7 @@ moe-forge carve-verify --manifest carve-manifest.json --artifact carved-artifact
 moe-forge wrapper-export --manifest carve-manifest.json --artifact carved-artifact/carved-experts.safetensors --router-plan router-plan.json --output-dir wrapper
 moe-forge eval-hf <model-path> --wrapper wrapper --output eval-report.json
 moe-forge eval-report-html --input eval-report.json --output eval-report.html
+moe-forge eval-compare eval-all.json eval-router.json --output eval-compare.json --html-output eval-compare.html
 ```
 
 Supported inputs:
@@ -83,6 +84,7 @@ Current evaluation support includes:
 - replacement metadata, active expert records, memory notes, warnings, and package metadata
 - all-expert, default-pool, and document-router expert modes for routed subset tradeoff runs
 - self-contained HTML reports from eval JSON artifacts
+- multi-report comparison JSON/HTML for quality-first ranking, speed ratios, and active expert summaries
 
 Current carving support includes:
 

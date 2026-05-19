@@ -4,7 +4,13 @@ import json
 from pathlib import Path
 
 from moeforge.cli import main
-from moeforge.reports import render_eval_html_report, write_eval_html_report
+from moeforge.reports import (
+    build_eval_comparison,
+    render_eval_comparison_html,
+    render_eval_html_report,
+    write_eval_comparison_report,
+    write_eval_html_report,
+)
 
 
 def test_render_eval_html_report_escapes_and_summarizes() -> None:
@@ -40,23 +46,109 @@ def test_write_eval_html_report_and_cli(tmp_path: Path) -> None:
     assert "Active Experts" in cli_html_path.read_text(encoding="utf-8")
 
 
-def _report() -> dict:
+def test_build_eval_comparison_ranks_reports_and_renders_html(tmp_path: Path) -> None:
+    all_path = tmp_path / "all.json"
+    router_path = tmp_path / "router.json"
+    all_path.write_text(
+        json.dumps(_report(label="all", mode="all", passed=True, max_abs=0.0, latency_ratio=2.0)),
+        encoding="utf-8",
+    )
+    router_path.write_text(
+        json.dumps(_report(label="router", mode="router", passed=False, max_abs=0.2, latency_ratio=0.6)),
+        encoding="utf-8",
+    )
+
+    comparison = build_eval_comparison(report_paths=[router_path, all_path])
+    html = render_eval_comparison_html(comparison)
+
+    assert comparison["best"]["label"] == "all"
+    assert comparison["ranked"][0]["rank"] == 1
+    assert comparison["ranked"][1]["expert_modes"] == ["router"]
+    assert comparison["ranked"][1]["active_experts"][0]["expert_sets"] == [[0]]
+    assert "Ranked Reports" in html
+    assert "Active Expert Sets" in html
+
+
+def test_eval_compare_cli_writes_json_and_html(tmp_path: Path) -> None:
+    first = tmp_path / "first.json"
+    second = tmp_path / "second.json"
+    output = tmp_path / "compare.json"
+    html_output = tmp_path / "compare.html"
+    first.write_text(
+        json.dumps(_report(label="first", mode="all", passed=True, max_abs=0.0)),
+        encoding="utf-8",
+    )
+    second.write_text(
+        json.dumps(_report(label="second", mode="router", passed=False, max_abs=0.1)),
+        encoding="utf-8",
+    )
+
+    comparison = write_eval_comparison_report(
+        report_paths=[second, first],
+        output_path=tmp_path / "api-compare.json",
+        html_output_path=tmp_path / "api-compare.html",
+    )
+    status = main(
+        [
+            "eval-compare",
+            str(second),
+            str(first),
+            "--output",
+            str(output),
+            "--html-output",
+            str(html_output),
+        ]
+    )
+
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert status == 0
+    assert comparison["best"]["label"] == "first"
+    assert payload["report_count"] == 2
+    assert payload["best"]["label"] == "first"
+    assert html_output.read_text(encoding="utf-8").startswith("<!doctype html>")
+
+
+def _report(
+    *,
+    label: str = "tiny-report",
+    mode: str = "router",
+    passed: bool = False,
+    max_abs: float = 0.25,
+    latency_ratio: float = 2.0,
+) -> dict:
+    return _report_with(
+        label=label,
+        mode=mode,
+        passed=passed,
+        max_abs=max_abs,
+        latency_ratio=latency_ratio,
+    )
+
+
+def _report_with(
+    *,
+    label: str = "tiny-report",
+    mode: str = "router",
+    passed: bool = False,
+    max_abs: float = 0.25,
+    latency_ratio: float = 2.0,
+) -> dict:
     return {
-        "model": "tiny <model>",
+        "model": f"tiny <model> {label}",
         "package_dir": "wrapper",
         "source_model": "dense-source",
         "adapter_family": "llama",
         "sample_count": 1,
-        "passed": False,
-        "max_abs_error": 0.25,
+        "passed": passed,
+        "max_abs_error": max_abs,
         "mean_abs_error": 0.05,
         "warnings": ["approximate subset comparison"],
         "summary": {
             "average_dense_latency_s": 0.01,
             "average_carved_latency_s": 0.02,
-            "average_carved_vs_dense_latency_ratio": 2.0,
+            "average_carved_vs_dense_latency_ratio": latency_ratio,
             "worst_sample_index": 0,
-            "worst_sample_max_abs_error": 0.25,
+            "worst_sample_max_abs_error": max_abs,
             "worst_layer_sample_index": 0,
             "worst_layer": 1,
             "worst_layer_selected_vs_all_max_abs_error": 0.2,
@@ -65,16 +157,16 @@ def _report() -> dict:
             {
                 "index": 0,
                 "source": "input_ids:0",
-                "expert_mode": "router",
-                "max_abs_error": 0.25,
+                "expert_mode": mode,
+                "max_abs_error": max_abs,
                 "mean_abs_error": 0.05,
-                "carved_vs_dense_latency_ratio": 2.0,
-                "allclose": False,
+                "carved_vs_dense_latency_ratio": latency_ratio,
+                "allclose": passed,
             }
         ],
         "active_experts": [
-            {"sample_index": 0, "layer": 0, "mode": "router", "experts": [0]},
-            {"sample_index": 0, "layer": 1, "mode": "router", "experts": [1]},
+            {"sample_index": 0, "layer": 0, "mode": mode, "experts": [0]},
+            {"sample_index": 0, "layer": 1, "mode": mode, "experts": [1]},
         ],
         "layer_attribution": [
             {

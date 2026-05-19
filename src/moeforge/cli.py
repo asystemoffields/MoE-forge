@@ -13,7 +13,11 @@ from .inspectors import inspect_model
 from .materialize import materialize_carve_manifest
 from .planner import PlanOptions, plan_conversion
 from .profiling import ProfileOptions, load_calibration_texts, profile_hf_model
-from .reports import write_eval_html_report, write_eval_html_report_payload
+from .reports import (
+    write_eval_comparison_report,
+    write_eval_html_report,
+    write_eval_html_report_payload,
+)
 from .recipe import recipe_to_dict
 from .router import build_router_plan
 from .runtime import verify_carved_artifact
@@ -47,6 +51,8 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_eval_hf(args)
         if args.command == "eval-report-html":
             return _cmd_eval_report_html(args)
+        if args.command == "eval-compare":
+            return _cmd_eval_compare(args)
     except Exception as exc:  # pragma: no cover - CLI boundary
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -195,6 +201,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     report_parser.add_argument("--input", type=Path, required=True, help="Evaluation JSON report from eval-hf.")
     report_parser.add_argument("--output", type=Path, required=True, help="HTML report output path.")
+
+    compare_parser = subparsers.add_parser(
+        "eval-compare",
+        help="Compare multiple eval-hf JSON reports side by side.",
+    )
+    compare_parser.add_argument("reports", type=Path, nargs="+", help="Evaluation JSON reports from eval-hf.")
+    compare_parser.add_argument("--output", type=Path, required=True, help="Comparison JSON output path.")
+    compare_parser.add_argument("--html-output", type=Path, help="Optional self-contained HTML comparison output path.")
+    compare_parser.add_argument("--print", action="store_true", help="Also print the comparison JSON.")
 
     return parser
 
@@ -384,6 +399,19 @@ def _cmd_eval_hf(args: argparse.Namespace) -> int:
 def _cmd_eval_report_html(args: argparse.Namespace) -> int:
     write_eval_html_report(report_path=args.input, output_path=args.output)
     print(f"wrote {args.output}")
+    return 0
+
+
+def _cmd_eval_compare(args: argparse.Namespace) -> int:
+    comparison = write_eval_comparison_report(
+        report_paths=args.reports,
+        output_path=args.output,
+        html_output_path=args.html_output,
+    )
+    if args.print:
+        print(json.dumps(comparison, indent=2, sort_keys=True))
+    else:
+        print(f"wrote {args.output}")
     return 0
 
 
