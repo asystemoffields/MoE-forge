@@ -66,9 +66,11 @@ Current routing support includes:
 
 Current wrapper support includes:
 
+- `config.json` export for `MoEForgeConfig.from_package(...)`
 - `moeforge_config.json` package export for carved FFN artifacts
 - optional router-plan packaging
 - reloadable carved layer runtime from wrapper config
+- PyTorch module loading for carved FFN layer parity and selected expert subsets
 
 Current carving support includes:
 

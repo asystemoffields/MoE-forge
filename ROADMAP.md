@@ -50,9 +50,9 @@ Each conversion backend should report:
 
 Partition dense FFN channels into shared and routed expert groups. This is the first full conversion path because it can be initialized from one dense checkpoint and measured layer by layer.
 
-Current carved artifacts materialize shared/expert tensor slices for inspection and downstream assembly. The next step is writing runnable HF MoE module/config wrappers around those slices.
+Current carved artifacts materialize shared/expert tensor slices for inspection and downstream assembly. The wrapper path now exposes those slices through package metadata and a PyTorch FFN module.
 
-Current runtime support can verify carved tensors reconstruct source dense FFN weights and can execute all carved experts as a gated MLP parity layer. It can also execute selected expert subsets from document-pool router metadata. Initial wrapper package export exists through `moeforge_config.json`; the next step is full HF `PretrainedConfig` / module integration.
+Current runtime support can verify carved tensors reconstruct source dense FFN weights and can execute all carved experts as a gated MLP parity layer. It can also execute selected expert subsets from document-pool router metadata. Initial wrapper package export now writes `moeforge_config.json` and `config.json`, and `MoEForgeCarvedMLPModule` can load a carved FFN layer as a PyTorch module. The next step is replacing FFN modules inside a tiny HF causal LM for end-to-end parity.
 
 ### Sparse Upcycle
 

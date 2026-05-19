@@ -93,6 +93,7 @@ def export_wrapper_package(
     )
     config_path = output_dir / "moeforge_config.json"
     config_path.write_text(json.dumps(config.to_dict(), indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    _write_hf_config(output_dir, config)
     _write_wrapper_readme(output_dir, config)
     return config
 
@@ -187,6 +188,7 @@ def _write_wrapper_readme(output_dir: Path, config: WrapperConfig) -> None:
         "",
         "Files:",
         "",
+        "- `config.json`: Transformers-compatible MoE Forge config",
         "- `moeforge_config.json`: wrapper configuration",
         "- `carve-manifest.json`: tensor slicing manifest",
     ]
@@ -202,6 +204,13 @@ def _write_wrapper_readme(output_dir: Path, config: WrapperConfig) -> None:
         ]
     )
     (output_dir / "README.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _write_hf_config(output_dir: Path, config: WrapperConfig) -> None:
+    from .hf_runtime import hf_config_payload_from_wrapper
+
+    payload = hf_config_payload_from_wrapper(config)
+    (output_dir / "config.json").write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
 def _read_json(path: Path) -> dict[str, Any]:
