@@ -1,0 +1,15 @@
+{
+  "model": "tiny-llama",
+  "wrapper": "wrapper",
+  "output_dir": "eval-runs",
+  "expert_modes": ["all", "default-pool", "router"],
+  "input_ids": [
+    [1, 2, 3, 4],
+    [4, 3, 2, 1]
+  ],
+  "write_html": true,
+  "recovery_eval": {
+    "enabled": true,
+    "metrics": ["logits_parity", "teacher_kl", "next_token_nll"]
+  }
+}

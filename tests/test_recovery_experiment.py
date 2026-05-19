@@ -50,11 +50,45 @@ def test_run_recovery_experiment_orchestrates_before_recover_after(tmp_path: Pat
     assert report["summary"]["final_loss"] == 0.25
     assert report["summary"]["recovered_wrapper_validation_status"] == "validated"
     assert report["summary"]["recovered_updated_tensor_count"] == 1
+    assert report["summary"]["improved_modes_by_teacher_kl"] == 2
     assert comparison["mode_deltas"][0]["max_abs_error_delta"] < 0
+    assert comparison["mode_deltas"][0]["teacher_kl_loss_delta"] < 0
     assert Path(report["artifacts"]["html_report"]).exists()
     assert Path(report["artifacts"]["recovered_wrapper_validation"]).exists()
     assert Path(report["artifacts"]["before_eval_manifest"]).exists()
     assert Path(report["artifacts"]["after_eval_manifest"]).exists()
+
+
+def test_run_recovery_experiment_resolves_relative_config_paths(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    Path("experiment.json").write_text(
+        json.dumps(
+            {
+                "model": "tiny-model",
+                "wrapper": "wrapper",
+                "output_dir": "experiment",
+                "eval": {"expert_modes": ["all"], "input_ids": [[1, 2, 3]]},
+                "train": {"input_ids": [[1, 2, 3]]},
+                "recovery": {"schedule": {"steps": 1}},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    run_recovery_experiment(
+        config_path=Path("experiment.json"),
+        evaluator=_fake_evaluator,
+        recovery_runner=_fake_recovery_runner,
+        exporter=_fake_exporter,
+        validator=_fake_validator,
+    )
+
+    before_config = json.loads(Path("experiment/before/eval-batch-config.json").read_text(encoding="utf-8"))
+    recovery_config = json.loads(Path("experiment/recovery/recovery-config.json").read_text(encoding="utf-8"))
+    assert before_config["model"] == str(tmp_path / "tiny-model")
+    assert before_config["wrapper"] == str(tmp_path / "wrapper")
+    assert recovery_config["teacher_model"] == str(tmp_path / "tiny-model")
+    assert recovery_config["wrapper"] == str(tmp_path / "wrapper")
 
 
 def _fake_evaluator(**kwargs):
@@ -84,6 +118,11 @@ class _FakeEvalReport:
                 "average_dense_latency_s": 0.01,
                 "average_carved_latency_s": 0.02,
                 "average_carved_vs_dense_latency_ratio": 2.0,
+                "average_teacher_kl_loss": self.max_abs / 10,
+                "average_dense_nll_loss": 2.0,
+                "average_carved_nll_loss": 2.0 + self.max_abs,
+                "average_nll_loss_delta": self.max_abs,
+                "loss_token_count": 2,
                 "worst_layer": 0,
                 "worst_layer_selected_vs_all_max_abs_error": self.max_abs,
             },
@@ -94,6 +133,11 @@ class _FakeEvalReport:
                     "expert_mode": self.mode,
                     "max_abs_error": self.max_abs,
                     "mean_abs_error": self.max_abs / 2,
+                    "teacher_kl_loss": self.max_abs / 10,
+                    "dense_nll_loss": 2.0,
+                    "carved_nll_loss": 2.0 + self.max_abs,
+                    "nll_loss_delta": self.max_abs,
+                    "loss_token_count": 2,
                     "carved_vs_dense_latency_ratio": 2.0,
                     "allclose": False,
                 }

@@ -1,0 +1,44 @@
+{
+  "model": "tiny-llama",
+  "wrapper": "wrapper",
+  "output_dir": "recovery-experiment",
+  "strict_validation": true,
+  "eval": {
+    "expert_modes": ["all", "default-pool", "router"],
+    "input_ids": [
+      [1, 2, 3, 4],
+      [4, 3, 2, 1]
+    ],
+    "write_html": true,
+    "recovery_eval": {
+      "enabled": true,
+      "metrics": ["logits_parity", "teacher_kl", "next_token_nll"]
+    }
+  },
+  "train": {
+    "input_ids": [
+      [1, 2, 3, 4],
+      [4, 3, 2, 1]
+    ]
+  },
+  "recovery": {
+    "loss": {
+      "teacher_kl_weight": 1.0,
+      "logits_mse_weight": 0.1,
+      "temperature": 1.0
+    },
+    "optimizer": {
+      "learning_rate": 0.001
+    },
+    "schedule": {
+      "steps": 2,
+      "batch_size": 1,
+      "save_every_steps": 1
+    },
+    "trainable": {
+      "experts": true,
+      "shared": false,
+      "dense_backbone": false
+    }
+  }
+}

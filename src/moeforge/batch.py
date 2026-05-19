@@ -212,6 +212,11 @@ def _run_record(
         "max_abs_error": report.get("max_abs_error"),
         "mean_abs_error": report.get("mean_abs_error"),
         "latency_ratio": summary.get("average_carved_vs_dense_latency_ratio"),
+        "teacher_kl_loss": summary.get("average_teacher_kl_loss"),
+        "dense_nll_loss": summary.get("average_dense_nll_loss"),
+        "carved_nll_loss": summary.get("average_carved_nll_loss"),
+        "nll_loss_delta": summary.get("average_nll_loss_delta"),
+        "loss_token_count": summary.get("loss_token_count"),
         "worst_layer": summary.get("worst_layer"),
         "worst_layer_selected_vs_all_max_abs_error": summary.get(
             "worst_layer_selected_vs_all_max_abs_error"
@@ -280,7 +285,7 @@ def _recovery_eval_plan(*, config: dict[str, Any], model: Path) -> dict[str, Any
         "metrics": [str(metric) for metric in metrics],
         "notes": [
             "Batch eval records dense-teacher settings for recovery-training runs.",
-            "Teacher-KL computation belongs in the recovery trainer once that backend lands.",
+            "Eval reports include dense-teacher KL and next-token NLL summaries for before/after recovery comparisons.",
         ],
     }
 

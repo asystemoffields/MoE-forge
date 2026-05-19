@@ -41,6 +41,8 @@ moe-forge recovery-validate --source-wrapper wrapper --recovered-wrapper recover
 moe-forge recovery-experiment --config recovery-experiment.json --output-dir recovery-experiment
 ```
 
+For an end-to-end local smoke run, see [examples/tiny-hf-smoke](examples/tiny-hf-smoke).
+
 Supported inputs:
 
 - Hugging Face model folders with `config.json`
@@ -88,6 +90,7 @@ Current evaluation support includes:
 - per-sample max/mean absolute error and latency
 - per-layer dense/all-expert/selected-expert attribution
 - replacement metadata, active expert records, memory notes, warnings, and package metadata
+- teacher-KL, dense next-token NLL, carved next-token NLL, NLL deltas, and loss-token counts
 - all-expert, default-pool, and document-router expert modes for routed subset tradeoff runs
 - self-contained HTML reports from eval JSON artifacts
 - multi-report comparison JSON/HTML for quality-first ranking, speed ratios, and active expert summaries

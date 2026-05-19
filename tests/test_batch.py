@@ -34,6 +34,7 @@ def test_run_eval_batch_writes_reports_comparison_and_manifest(tmp_path: Path) -
     assert manifest["completed_report_count"] == 2
     assert manifest["runs"][0]["status"] == "passed"
     assert manifest["runs"][1]["status"] == "failed"
+    assert manifest["runs"][1]["teacher_kl_loss"] == 0.05
     assert manifest["comparison"]["status"] == "written"
     assert manifest["recovery_eval"]["enabled"] is True
     assert compare["report_count"] == 2
@@ -85,6 +86,11 @@ class _FakeReport:
                 "average_dense_latency_s": 0.01,
                 "average_carved_latency_s": 0.01 if self.passed else 0.005,
                 "average_carved_vs_dense_latency_ratio": 1.0 if self.passed else 0.5,
+                "average_teacher_kl_loss": 0.0 if self.passed else 0.05,
+                "average_dense_nll_loss": 2.0,
+                "average_carved_nll_loss": 2.0 if self.passed else 2.2,
+                "average_nll_loss_delta": 0.0 if self.passed else 0.2,
+                "loss_token_count": 2,
                 "worst_layer": 0,
                 "worst_layer_selected_vs_all_max_abs_error": max_abs,
             },
@@ -95,6 +101,11 @@ class _FakeReport:
                     "expert_mode": self.mode,
                     "max_abs_error": max_abs,
                     "mean_abs_error": max_abs / 2,
+                    "teacher_kl_loss": 0.0 if self.passed else 0.05,
+                    "dense_nll_loss": 2.0,
+                    "carved_nll_loss": 2.0 if self.passed else 2.2,
+                    "nll_loss_delta": 0.0 if self.passed else 0.2,
+                    "loss_token_count": 2,
                     "carved_vs_dense_latency_ratio": 1.0 if self.passed else 0.5,
                     "allclose": self.passed,
                 }

@@ -20,6 +20,7 @@ def test_render_eval_html_report_escapes_and_summarizes() -> None:
     assert "tiny &lt;model&gt;" in html
     assert "Layer Attribution" in html
     assert "Selected-All Max" in html
+    assert "Teacher KL" in html
     assert "E0" in html
     assert "quality/speed tradeoff" in html
 
@@ -147,6 +148,11 @@ def _report_with(
             "average_dense_latency_s": 0.01,
             "average_carved_latency_s": 0.02,
             "average_carved_vs_dense_latency_ratio": latency_ratio,
+            "average_teacher_kl_loss": max_abs / 4,
+            "average_dense_nll_loss": 2.0,
+            "average_carved_nll_loss": 2.0 + max_abs,
+            "average_nll_loss_delta": max_abs,
+            "loss_token_count": 4,
             "worst_sample_index": 0,
             "worst_sample_max_abs_error": max_abs,
             "worst_layer_sample_index": 0,
@@ -160,6 +166,11 @@ def _report_with(
                 "expert_mode": mode,
                 "max_abs_error": max_abs,
                 "mean_abs_error": 0.05,
+                "teacher_kl_loss": max_abs / 4,
+                "dense_nll_loss": 2.0,
+                "carved_nll_loss": 2.0 + max_abs,
+                "nll_loss_delta": max_abs,
+                "loss_token_count": 4,
                 "carved_vs_dense_latency_ratio": latency_ratio,
                 "allclose": passed,
             }

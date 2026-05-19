@@ -26,6 +26,11 @@ class EvalSample:
     carved_latency_s: float
     carved_vs_dense_latency_ratio: float | None
     expert_mode: str
+    teacher_kl_loss: float | None
+    dense_nll_loss: float | None
+    carved_nll_loss: float | None
+    nll_loss_delta: float | None
+    loss_token_count: int
     active_experts: list[dict[str, Any]]
 
 
@@ -60,6 +65,11 @@ class EvalSummary:
     worst_layer_sample_index: int | None
     worst_layer: int | None
     worst_layer_selected_vs_all_max_abs_error: float
+    average_teacher_kl_loss: float | None
+    average_dense_nll_loss: float | None
+    average_carved_nll_loss: float | None
+    average_nll_loss_delta: float | None
+    loss_token_count: int
 
 
 @dataclass(slots=True)
@@ -157,6 +167,12 @@ def evaluate_hf_dense_vs_carved(
             carved_output, carved_latency = _timed_forward(carved, prepared_sample["inputs"], torch=torch)
             diff = (dense_output.logits - carved_output.logits).abs()
             allclose = bool(torch.allclose(dense_output.logits, carved_output.logits, atol=atol, rtol=rtol))
+            quality = _quality_metrics(
+                dense_logits=dense_output.logits,
+                carved_logits=carved_output.logits,
+                inputs=prepared_sample["inputs"],
+                torch=torch,
+            )
             active_records = [
                 EvalActiveExperts(
                     sample_index=index,
@@ -178,6 +194,11 @@ def evaluate_hf_dense_vs_carved(
                     carved_latency_s=carved_latency,
                     carved_vs_dense_latency_ratio=_latency_ratio(dense_latency, carved_latency),
                     expert_mode=expert_mode,
+                    teacher_kl_loss=quality["teacher_kl_loss"],
+                    dense_nll_loss=quality["dense_nll_loss"],
+                    carved_nll_loss=quality["carved_nll_loss"],
+                    nll_loss_delta=quality["nll_loss_delta"],
+                    loss_token_count=quality["loss_token_count"],
                     active_experts=[asdict(record) for record in active_records],
                 )
             )
@@ -385,6 +406,7 @@ def _layer_attribution_for_sample(
 def _summary(*, samples: list[EvalSample], layer_attribution: list[EvalLayerAttribution]) -> EvalSummary:
     average_dense = _average([sample.dense_latency_s for sample in samples])
     average_carved = _average([sample.carved_latency_s for sample in samples])
+    loss_token_count = int(sum(sample.loss_token_count for sample in samples))
     worst_sample = max(samples, key=lambda sample: sample.max_abs_error, default=None)
     worst_layer = max(
         layer_attribution,
@@ -402,11 +424,32 @@ def _summary(*, samples: list[EvalSample], layer_attribution: list[EvalLayerAttr
         worst_layer_selected_vs_all_max_abs_error=(
             worst_layer.selected_vs_all_max_abs_error if worst_layer else 0.0
         ),
+        average_teacher_kl_loss=_weighted_average_optional(
+            [(sample.teacher_kl_loss, sample.loss_token_count) for sample in samples]
+        ),
+        average_dense_nll_loss=_weighted_average_optional(
+            [(sample.dense_nll_loss, sample.loss_token_count) for sample in samples]
+        ),
+        average_carved_nll_loss=_weighted_average_optional(
+            [(sample.carved_nll_loss, sample.loss_token_count) for sample in samples]
+        ),
+        average_nll_loss_delta=_weighted_average_optional(
+            [(sample.nll_loss_delta, sample.loss_token_count) for sample in samples]
+        ),
+        loss_token_count=loss_token_count,
     )
 
 
 def _average(values: list[float]) -> float:
     return float(sum(values) / len(values)) if values else 0.0
+
+
+def _weighted_average_optional(values: list[tuple[float | None, int]]) -> float | None:
+    scored = [(float(value), int(weight)) for value, weight in values if value is not None and int(weight) > 0]
+    total_weight = sum(weight for _value, weight in scored)
+    if total_weight <= 0:
+        return None
+    return float(sum(value * weight for value, weight in scored) / total_weight)
 
 
 def _tensor_diff(left: Any, right: Any) -> dict[str, float]:
@@ -415,6 +458,69 @@ def _tensor_diff(left: Any, right: Any) -> dict[str, float]:
         "max_abs_error": float(diff.max().item()) if diff.numel() else 0.0,
         "mean_abs_error": float(diff.mean().item()) if diff.numel() else 0.0,
     }
+
+
+def _quality_metrics(*, dense_logits: Any, carved_logits: Any, inputs: dict[str, Any], torch: Any) -> dict[str, Any]:
+    input_ids = inputs.get("input_ids")
+    if input_ids is None or input_ids.shape[-1] < 2:
+        return {
+            "teacher_kl_loss": None,
+            "dense_nll_loss": None,
+            "carved_nll_loss": None,
+            "nll_loss_delta": None,
+            "loss_token_count": 0,
+        }
+    labels = input_ids[:, 1:].contiguous()
+    dense_shifted = dense_logits[:, :-1, :].float().contiguous()
+    carved_shifted = carved_logits[:, :-1, :].float().contiguous()
+    mask = _loss_mask(inputs=inputs, labels=labels, torch=torch)
+    token_count = int(mask.sum().item())
+    if token_count <= 0:
+        return {
+            "teacher_kl_loss": None,
+            "dense_nll_loss": None,
+            "carved_nll_loss": None,
+            "nll_loss_delta": None,
+            "loss_token_count": 0,
+        }
+    teacher_kl = torch.nn.functional.kl_div(
+        torch.nn.functional.log_softmax(carved_shifted, dim=-1),
+        torch.nn.functional.softmax(dense_shifted, dim=-1),
+        reduction="none",
+    ).sum(dim=-1)
+    dense_nll = _token_nll(dense_shifted, labels=labels, torch=torch)
+    carved_nll = _token_nll(carved_shifted, labels=labels, torch=torch)
+    teacher_kl_loss = max(0.0, _masked_mean(teacher_kl, mask=mask))
+    dense_nll_loss = _masked_mean(dense_nll, mask=mask)
+    carved_nll_loss = _masked_mean(carved_nll, mask=mask)
+    return {
+        "teacher_kl_loss": teacher_kl_loss,
+        "dense_nll_loss": dense_nll_loss,
+        "carved_nll_loss": carved_nll_loss,
+        "nll_loss_delta": carved_nll_loss - dense_nll_loss,
+        "loss_token_count": token_count,
+    }
+
+
+def _loss_mask(*, inputs: dict[str, Any], labels: Any, torch: Any) -> Any:
+    attention_mask = inputs.get("attention_mask")
+    if attention_mask is None:
+        return torch.ones_like(labels, dtype=torch.float32)
+    return attention_mask[:, 1:].to(dtype=torch.float32)
+
+
+def _token_nll(logits: Any, *, labels: Any, torch: Any) -> Any:
+    vocab_size = logits.shape[-1]
+    losses = torch.nn.functional.cross_entropy(
+        logits.reshape(-1, vocab_size),
+        labels.reshape(-1),
+        reduction="none",
+    )
+    return losses.reshape(labels.shape)
+
+
+def _masked_mean(values: Any, *, mask: Any) -> float:
+    return float(((values * mask).sum() / mask.sum()).detach().cpu().item())
 
 
 def _dtype_from_string(value: Any, *, torch: Any) -> Any | None:

@@ -23,6 +23,7 @@ def build_eval_comparison(*, report_paths: list[Path]) -> dict[str, Any]:
         reports,
         key=lambda item: (
             not bool(item["passed"]),
+            _rank_number(item["teacher_kl_loss"]),
             _rank_number(item["max_abs_error"]),
             _rank_number(item["latency_ratio"]),
         ),
@@ -33,7 +34,7 @@ def build_eval_comparison(*, report_paths: list[Path]) -> dict[str, Any]:
     lowest_error = min(reports, key=lambda item: _rank_number(item["max_abs_error"]))
     return {
         "format": "moeforge_eval_comparison",
-        "ranking_policy": "passed first, then max_abs_error, then latency_ratio",
+        "ranking_policy": "passed first, then teacher_kl_loss when available, then max_abs_error, then latency_ratio",
         "report_count": len(reports),
         "reports": reports,
         "ranked": ranked,
@@ -175,6 +176,11 @@ def _comparison_record(payload: dict[str, Any], *, path: Path, index: int) -> di
         "max_abs_error": _optional_float(payload.get("max_abs_error")),
         "mean_abs_error": _optional_float(payload.get("mean_abs_error")),
         "latency_ratio": _optional_float(summary.get("average_carved_vs_dense_latency_ratio")),
+        "teacher_kl_loss": _optional_float(summary.get("average_teacher_kl_loss")),
+        "dense_nll_loss": _optional_float(summary.get("average_dense_nll_loss")),
+        "carved_nll_loss": _optional_float(summary.get("average_carved_nll_loss")),
+        "nll_loss_delta": _optional_float(summary.get("average_nll_loss_delta")),
+        "loss_token_count": _optional_int(summary.get("loss_token_count")),
         "average_dense_latency_s": _optional_float(summary.get("average_dense_latency_s")),
         "average_carved_latency_s": _optional_float(summary.get("average_carved_latency_s")),
         "worst_layer": summary.get("worst_layer"),
@@ -231,6 +237,7 @@ def _comparison_summary(comparison: dict[str, Any]) -> str:
         ("Quality-First Best", best.get("label")),
         ("Lowest Error", lowest_error.get("label")),
         ("Lowest Max Abs", lowest_error.get("max_abs_error")),
+        ("Best Teacher KL", best.get("teacher_kl_loss")),
         ("Fastest Label", fastest.get("label")),
         ("Fastest Ratio", fastest.get("latency_ratio")),
     ]
@@ -272,6 +279,8 @@ def _comparison_table(comparison: dict[str, Any]) -> str:
             f"<td>{escape(_text(item.get('passed')))}</td>"
             f"<td>{escape(_number(item.get('max_abs_error')))}</td>"
             f"<td>{escape(_number(item.get('mean_abs_error')))}</td>"
+            f"<td>{escape(_number(item.get('teacher_kl_loss')))}</td>"
+            f"<td>{escape(_number(item.get('nll_loss_delta')))}</td>"
             f"<td>{escape(_number(item.get('latency_ratio')))}</td>"
             f"<td>{escape(_text(item.get('worst_layer')))}</td>"
             f"<td>{escape(_number(item.get('worst_layer_selected_vs_all_max_abs_error')))}</td>"
@@ -286,6 +295,8 @@ def _comparison_table(comparison: dict[str, Any]) -> str:
             "Passed",
             "Max Abs",
             "Mean Abs",
+            "Teacher KL",
+            "NLL Delta",
             "Latency Ratio",
             "Worst Layer",
             "Worst Layer Delta",
@@ -323,6 +334,10 @@ def _summary_cards(report: dict[str, Any]) -> str:
         ("Samples", report.get("sample_count")),
         ("Max Abs Error", report.get("max_abs_error")),
         ("Mean Abs Error", report.get("mean_abs_error")),
+        ("Avg Teacher KL", summary.get("average_teacher_kl_loss")),
+        ("Avg Carved NLL", summary.get("average_carved_nll_loss")),
+        ("Avg NLL Delta", summary.get("average_nll_loss_delta")),
+        ("Loss Tokens", summary.get("loss_token_count")),
         ("Avg Dense Latency", summary.get("average_dense_latency_s")),
         ("Avg Carved Latency", summary.get("average_carved_latency_s")),
         ("Latency Ratio", summary.get("average_carved_vs_dense_latency_ratio")),
@@ -368,13 +383,27 @@ def _samples_table(report: dict[str, Any]) -> str:
             f"<td>{escape(_text(sample.get('expert_mode')))}</td>"
             f"<td>{escape(_number(sample.get('max_abs_error')))}</td>"
             f"<td>{escape(_number(sample.get('mean_abs_error')))}</td>"
+            f"<td>{escape(_number(sample.get('teacher_kl_loss')))}</td>"
+            f"<td>{escape(_number(sample.get('carved_nll_loss')))}</td>"
+            f"<td>{escape(_number(sample.get('nll_loss_delta')))}</td>"
             f"<td>{escape(_number(sample.get('carved_vs_dense_latency_ratio')))}</td>"
             f"<td>{escape(_text(sample.get('allclose')))}</td>"
             "</tr>"
         )
     return _section_table(
         title="Samples",
-        headers=["Index", "Source", "Mode", "Max Abs", "Mean Abs", "Latency Ratio", "Allclose"],
+        headers=[
+            "Index",
+            "Source",
+            "Mode",
+            "Max Abs",
+            "Mean Abs",
+            "Teacher KL",
+            "Carved NLL",
+            "NLL Delta",
+            "Latency Ratio",
+            "Allclose",
+        ],
         rows=rows,
     )
 

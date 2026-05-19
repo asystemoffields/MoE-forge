@@ -1,0 +1,20 @@
+{
+  "strategy": "document_pool_then_token_router",
+  "expert_count": 3,
+  "pool_size": 1,
+  "default_pool": [2],
+  "documents": [
+    {
+      "document_index": 0,
+      "text_sha256": "",
+      "experts": [0],
+      "scores": [3.0, 1.0, 0.0]
+    },
+    {
+      "document_index": 1,
+      "text_sha256": "",
+      "experts": [1],
+      "scores": [0.0, 3.0, 1.0]
+    }
+  ]
+}

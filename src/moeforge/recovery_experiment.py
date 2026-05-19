@@ -25,6 +25,7 @@ def run_recovery_experiment(
     exporter: Any = export_recovered_wrapper,
     validator: Any = validate_recovered_wrapper,
 ) -> dict[str, Any]:
+    config_path = config_path.resolve()
     config = _load_config(config_path)
     base_dir = config_path.parent
     run_dir = _output_dir(config=config, output_dir=output_dir, base_dir=base_dir)
@@ -146,6 +147,9 @@ def render_recovery_experiment_html(report: dict[str, Any]) -> str:
             f"<td>{escape(_number(item.get('max_abs_error_before')))}</td>"
             f"<td>{escape(_number(item.get('max_abs_error_after')))}</td>"
             f"<td>{escape(_number(item.get('max_abs_error_delta')))}</td>"
+            f"<td>{escape(_number(item.get('teacher_kl_loss_before')))}</td>"
+            f"<td>{escape(_number(item.get('teacher_kl_loss_after')))}</td>"
+            f"<td>{escape(_number(item.get('teacher_kl_loss_delta')))}</td>"
             f"<td>{escape(_number(item.get('latency_ratio_delta')))}</td>"
             "</tr>"
         )
@@ -195,6 +199,7 @@ def render_recovery_experiment_html(report: dict[str, Any]) -> str:
             '<section class="cards">',
             _card("Improved Modes", summary.get("improved_modes_by_max_abs_error")),
             _card("Regressed Modes", summary.get("regressed_modes_by_max_abs_error")),
+            _card("Improved KL Modes", summary.get("improved_modes_by_teacher_kl")),
             _card("Initial Loss", summary.get("initial_loss")),
             _card("Final Loss", summary.get("final_loss")),
             _card("Validation", validation.get("status")),
@@ -235,7 +240,7 @@ def render_recovery_experiment_html(report: dict[str, Any]) -> str:
             '<div class="table-wrap"><table>',
             "<thead><tr>"
             "<th>Mode</th><th>Status</th><th>Before Max</th><th>After Max</th>"
-            "<th>Delta Max</th><th>Delta Latency</th>"
+            "<th>Delta Max</th><th>Before KL</th><th>After KL</th><th>Delta KL</th><th>Delta Latency</th>"
             "</tr></thead>",
             f"<tbody>{''.join(rows)}</tbody>",
             "</table></div>",

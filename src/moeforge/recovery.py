@@ -100,6 +100,18 @@ def compare_eval_batch_manifests(*, before_path: Path, after_path: Path) -> dict
         if _numeric(item.get("max_abs_error_delta")) is not None
         and _numeric(item.get("max_abs_error_delta")) > 0
     ]
+    kl_improved = [
+        item
+        for item in comparable
+        if _numeric(item.get("teacher_kl_loss_delta")) is not None
+        and _numeric(item.get("teacher_kl_loss_delta")) < 0
+    ]
+    kl_regressed = [
+        item
+        for item in comparable
+        if _numeric(item.get("teacher_kl_loss_delta")) is not None
+        and _numeric(item.get("teacher_kl_loss_delta")) > 0
+    ]
     return {
         "format": "moeforge_recovery_before_after_eval",
         "status": "compared",
@@ -111,6 +123,8 @@ def compare_eval_batch_manifests(*, before_path: Path, after_path: Path) -> dict
             "improved_modes_by_max_abs_error": len(improved),
             "regressed_modes_by_max_abs_error": len(regressed),
             "unchanged_or_unscored_modes": len(comparable) - len(improved) - len(regressed),
+            "improved_modes_by_teacher_kl": len(kl_improved),
+            "regressed_modes_by_teacher_kl": len(kl_regressed),
         },
         "mode_deltas": deltas,
     }
@@ -294,6 +308,20 @@ def _mode_delta(
         "latency_ratio_before": before.get("latency_ratio"),
         "latency_ratio_after": after.get("latency_ratio"),
         "latency_ratio_delta": _delta(before.get("latency_ratio"), after.get("latency_ratio")),
+        "teacher_kl_loss_before": before.get("teacher_kl_loss"),
+        "teacher_kl_loss_after": after.get("teacher_kl_loss"),
+        "teacher_kl_loss_delta": _delta(before.get("teacher_kl_loss"), after.get("teacher_kl_loss")),
+        "dense_nll_loss_before": before.get("dense_nll_loss"),
+        "dense_nll_loss_after": after.get("dense_nll_loss"),
+        "dense_nll_loss_delta": _delta(before.get("dense_nll_loss"), after.get("dense_nll_loss")),
+        "carved_nll_loss_before": before.get("carved_nll_loss"),
+        "carved_nll_loss_after": after.get("carved_nll_loss"),
+        "carved_nll_loss_delta": _delta(before.get("carved_nll_loss"), after.get("carved_nll_loss")),
+        "nll_loss_delta_before": before.get("nll_loss_delta"),
+        "nll_loss_delta_after": after.get("nll_loss_delta"),
+        "nll_loss_delta_delta": _delta(before.get("nll_loss_delta"), after.get("nll_loss_delta")),
+        "loss_token_count_before": before.get("loss_token_count"),
+        "loss_token_count_after": after.get("loss_token_count"),
     }
 
 

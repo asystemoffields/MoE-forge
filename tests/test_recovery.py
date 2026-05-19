@@ -65,8 +65,10 @@ def test_write_recovery_plan_records_training_settings_and_before_after(tmp_path
     assert saved["samples"]["train"]["sample_count"] == 2
     assert saved["samples"]["eval"]["samples"][0]["token_count"] == 4
     assert saved["before_after_eval"]["summary"]["improved_modes_by_max_abs_error"] == 2
+    assert saved["before_after_eval"]["summary"]["improved_modes_by_teacher_kl"] == 2
     assert before_after["mode_deltas"][1]["expert_mode"] == "router"
     assert before_after["mode_deltas"][1]["max_abs_error_delta"] < 0
+    assert before_after["mode_deltas"][1]["teacher_kl_loss_delta"] < 0
 
 
 def test_recovery_plan_cli_writes_output(tmp_path: Path) -> None:
@@ -143,6 +145,11 @@ def _write_batch_manifest(
             "max_abs_error": all_error,
             "mean_abs_error": all_error / 2,
             "latency_ratio": 1.0,
+            "teacher_kl_loss": all_error / 10,
+            "dense_nll_loss": 2.0,
+            "carved_nll_loss": 2.0 + all_error,
+            "nll_loss_delta": all_error,
+            "loss_token_count": 3,
         }
     ]
     if include_router:
@@ -153,6 +160,11 @@ def _write_batch_manifest(
                 "max_abs_error": router_error,
                 "mean_abs_error": router_error / 2,
                 "latency_ratio": router_latency,
+                "teacher_kl_loss": router_error / 10,
+                "dense_nll_loss": 2.0,
+                "carved_nll_loss": 2.0 + router_error,
+                "nll_loss_delta": router_error,
+                "loss_token_count": 3,
             }
         )
     path.write_text(
