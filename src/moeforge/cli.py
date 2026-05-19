@@ -208,7 +208,7 @@ def build_parser() -> argparse.ArgumentParser:
     eval_parser.add_argument("--device", default="cpu", help="Torch device: cpu, auto, cuda, cuda:0, etc.")
     eval_parser.add_argument(
         "--expert-mode",
-        choices=["all", "default-pool", "router"],
+        choices=["all", "default-pool", "router", "learned-router"],
         default="all",
         help="Experts active in carved FFNs during evaluation.",
     )

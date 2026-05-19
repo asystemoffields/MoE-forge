@@ -2,7 +2,7 @@
   "model": "<LOCAL_HF_CHECKPOINT>",
   "wrapper": "wrapper",
   "output_dir": "eval-runs-text",
-  "expert_modes": ["all", "default-pool", "router"],
+  "expert_modes": ["all", "default-pool", "router", "learned-router"],
   "text_file": "sample-prompts.txt",
   "sequence_length": 48,
   "write_html": true,

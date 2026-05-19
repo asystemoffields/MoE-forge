@@ -74,9 +74,35 @@ def test_eval_hf_cli_writes_report(tmp_path: Path) -> None:
     assert html_output.read_text(encoding="utf-8").startswith("<!doctype html>")
 
 
+def test_eval_hf_cli_accepts_learned_router_mode(tmp_path: Path) -> None:
+    model_dir = _write_tiny_llama_checkpoint(tmp_path / "tiny-llama")
+    package_dir = _write_wrapper_package(tmp_path, model_dir, token_router_top_k=1)
+    output = tmp_path / "eval-learned-router.json"
+
+    status = main(
+        [
+            "eval-hf",
+            str(model_dir),
+            "--wrapper",
+            str(package_dir),
+            "--input-ids-json",
+            "[[1, 2, 3, 4]]",
+            "--expert-mode",
+            "learned-router",
+            "--output",
+            str(output),
+        ]
+    )
+    payload = json.loads(output.read_text(encoding="utf-8"))
+
+    assert status == 0
+    assert payload["samples"][0]["expert_mode"] == "learned-router"
+    assert payload["active_experts"][0]["token_count"] == 4
+
+
 def test_eval_batch_cli_writes_mode_reports_and_comparison(tmp_path: Path) -> None:
     model_dir = _write_tiny_llama_checkpoint(tmp_path / "tiny-llama")
-    package_dir = _write_wrapper_package(tmp_path, model_dir, with_router=True)
+    package_dir = _write_wrapper_package(tmp_path, model_dir, with_router=True, token_router_top_k=1)
     output_dir = tmp_path / "batch"
     config_path = tmp_path / "batch.json"
     config_path.write_text(
@@ -85,7 +111,7 @@ def test_eval_batch_cli_writes_mode_reports_and_comparison(tmp_path: Path) -> No
                 "model": str(model_dir),
                 "wrapper": str(package_dir),
                 "output_dir": str(output_dir),
-                "expert_modes": ["all", "default-pool", "router"],
+                "expert_modes": ["all", "default-pool", "router", "learned-router"],
                 "input_ids": [[1, 2, 3, 4], [4, 3, 2, 1]],
                 "write_html": True,
                 "recovery_eval": {"enabled": True},
@@ -98,14 +124,15 @@ def test_eval_batch_cli_writes_mode_reports_and_comparison(tmp_path: Path) -> No
 
     manifest = json.loads((output_dir / "eval-batch-manifest.json").read_text(encoding="utf-8"))
     assert status == 0
-    assert manifest["run_count"] == 3
-    assert manifest["completed_report_count"] == 3
-    assert [run["expert_mode"] for run in manifest["runs"]] == ["all", "default-pool", "router"]
+    assert manifest["run_count"] == 4
+    assert manifest["completed_report_count"] == 4
+    assert [run["expert_mode"] for run in manifest["runs"]] == ["all", "default-pool", "router", "learned-router"]
     assert manifest["runs"][0]["status"] == "passed"
     assert manifest["comparison"]["status"] == "written"
     assert manifest["recovery_eval"]["enabled"] is True
     assert (output_dir / "eval-all.json").exists()
     assert (output_dir / "eval-default_pool.html").exists()
+    assert (output_dir / "eval-learned_router.json").exists()
     assert (output_dir / "eval-compare.html").exists()
 
 
@@ -136,6 +163,27 @@ def test_evaluate_hf_dense_vs_carved_reports_routed_subset_tradeoff(tmp_path: Pa
     assert payload["summary"]["worst_layer_selected_vs_all_max_abs_error"] > 0.0
 
 
+def test_evaluate_hf_dense_vs_carved_reports_learned_router_tokens(tmp_path: Path) -> None:
+    model_dir = _write_tiny_llama_checkpoint(tmp_path / "tiny-llama")
+    package_dir = _write_wrapper_package(tmp_path, model_dir, token_router_top_k=1)
+
+    report = evaluate_hf_dense_vs_carved(
+        model=model_dir,
+        package_dir=package_dir,
+        input_ids=[[1, 2, 3, 4]],
+        expert_mode="learned-router",
+    )
+    payload = report.to_dict()
+
+    assert not report.passed
+    assert payload["active_experts"][0]["mode"] == "learned-router"
+    assert payload["active_experts"][0]["top_k"] == 1
+    assert payload["active_experts"][0]["token_count"] == 4
+    assert sum(payload["active_experts"][0]["expert_token_counts"].values()) == 4
+    assert payload["samples"][0]["active_experts"][0]["mean_selected_weight_by_expert"]
+    assert payload["layer_attribution"][0]["selected_vs_all_max_abs_error"] > 0.0
+
+
 def test_evaluate_hf_dense_vs_carved_validates_input_ids(tmp_path: Path) -> None:
     model_dir = _write_tiny_llama_checkpoint(tmp_path / "tiny-llama")
     package_dir = _write_wrapper_package(tmp_path, model_dir)
@@ -148,7 +196,13 @@ def test_evaluate_hf_dense_vs_carved_validates_input_ids(tmp_path: Path) -> None
         )
 
 
-def _write_wrapper_package(tmp_path: Path, model: Path, *, with_router: bool = False) -> Path:
+def _write_wrapper_package(
+    tmp_path: Path,
+    model: Path,
+    *,
+    with_router: bool = False,
+    token_router_top_k: int | None = None,
+) -> Path:
     manifest_path = _write_manifest(tmp_path, model)
     artifact_dir = tmp_path / "artifact"
     materialize_carve_manifest(manifest_path=manifest_path, output_dir=artifact_dir)
@@ -177,6 +231,7 @@ def _write_wrapper_package(tmp_path: Path, model: Path, *, with_router: bool = F
         router_plan_path=router_path,
         output_dir=package_dir,
         copy_artifact=True,
+        token_router_top_k=token_router_top_k,
     )
     return package_dir
 

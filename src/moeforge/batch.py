@@ -13,7 +13,7 @@ class EvalBatchError(RuntimeError):
     """Raised when an eval-batch config cannot be run."""
 
 
-EXPERT_MODES = ("all", "default-pool", "router")
+EXPERT_MODES = ("all", "default-pool", "router", "learned-router")
 
 
 def run_eval_batch(

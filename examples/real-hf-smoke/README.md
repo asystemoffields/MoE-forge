@@ -42,4 +42,4 @@ Expected lab-notebook artifacts:
 - `recovery-experiment-text-3step/recovered-wrapper/recovery-export-report.json`
 - `recovery-experiment-text-3step/recovered-wrapper/learned-router.safetensors` when router recovery is enabled
 
-The reports record text-file SHA-256 provenance, active expert selections, latency ratios, teacher-KL and next-token NLL deltas, recovered tensor metadata, checkpoint identity, and recovered-wrapper validation evidence.
+The reports record text-file SHA-256 provenance, active expert selections, learned-router token counts, latency ratios, teacher-KL and next-token NLL deltas, recovered tensor metadata, checkpoint identity, and recovered-wrapper validation evidence.

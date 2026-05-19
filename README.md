@@ -97,6 +97,7 @@ Current evaluation support includes:
 - replacement metadata, active expert records, memory notes, warnings, and package metadata
 - teacher-KL, dense next-token NLL, carved next-token NLL, NLL deltas, and loss-token counts
 - all-expert, default-pool, and document-router expert modes for routed subset tradeoff runs
+- learned-router eval mode with per-layer token counts, top-k, expert token counts, and selected-weight summaries
 - self-contained HTML reports from eval JSON artifacts
 - multi-report comparison JSON/HTML for quality-first ranking, speed ratios, and active expert summaries
 - config-driven eval batches that run multiple expert modes, emit per-mode reports, compare completed runs, and preserve recovery-eval settings

@@ -159,6 +159,7 @@ class MoEForgeCarvedMLPModule(_TorchModule):
         self.default_experts: list[int] | None = None
         self.token_router_top_k = _normalized_top_k(config.token_router_top_k, expert_count=config.expert_count)
         self.token_router: Any | None = None
+        self.last_router_summary: dict[str, Any] | None = None
         self._tensor_buffers: dict[str, str] = {}
 
         prefix = f"moe.layers.{layer}.mlp."
@@ -258,6 +259,7 @@ class MoEForgeCarvedMLPModule(_TorchModule):
         logits = self.token_router(hidden_states)
         probabilities = torch.softmax(logits, dim=-1)
         top_values, top_indices = torch.topk(probabilities, k=self.token_router_top_k, dim=-1)
+        self.last_router_summary = self._router_summary(top_values=top_values, top_indices=top_indices)
         output = self._group_contribution(hidden_states, kind="shared", expert=None)
         for expert in range(self.expert_count):
             mask = top_indices == expert
@@ -354,6 +356,30 @@ class MoEForgeCarvedMLPModule(_TorchModule):
         hidden = self._activate(torch.nn.functional.linear(hidden_states, gate))
         hidden = hidden * torch.nn.functional.linear(hidden_states, up)
         return torch.nn.functional.linear(hidden, down)
+
+    def _router_summary(self, *, top_values: Any, top_indices: Any) -> dict[str, Any]:
+        token_count = int(top_indices.shape[0] * top_indices.shape[1]) if len(top_indices.shape) >= 2 else int(top_indices.numel())
+        expert_token_counts: dict[str, int] = {}
+        expert_weight_sums: dict[str, float] = {}
+        for expert in range(self.expert_count):
+            mask = top_indices == expert
+            count = int(mask.sum().detach().cpu().item())
+            if count <= 0:
+                continue
+            weight_sum = float(torch.where(mask, top_values, torch.zeros_like(top_values)).sum().detach().cpu().item())
+            expert_token_counts[str(expert)] = count
+            expert_weight_sums[str(expert)] = weight_sum
+        return {
+            "layer": self.layer,
+            "top_k": self.token_router_top_k,
+            "token_count": token_count,
+            "experts": [int(key) for key in sorted(expert_token_counts, key=int)],
+            "expert_token_counts": expert_token_counts,
+            "mean_selected_weight_by_expert": {
+                key: expert_weight_sums[key] / expert_token_counts[key]
+                for key in expert_token_counts
+            },
+        }
 
     def _prefix(self, kind: str, expert: int | None) -> str:
         if kind == "shared":

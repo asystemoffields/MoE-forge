@@ -40,6 +40,10 @@ class EvalActiveExperts:
     layer: int
     experts: list[int]
     mode: str
+    token_count: int | None = None
+    top_k: int | None = None
+    expert_token_counts: dict[str, int] | None = None
+    mean_selected_weight_by_expert: dict[str, float] | None = None
 
 
 @dataclass(slots=True)
@@ -165,6 +169,13 @@ def evaluate_hf_dense_vs_carved(
                 captures["close"]()
             _apply_default_experts(carved, replacements=replacement_payload, experts_by_layer=sample_experts)
             carved_output, carved_latency = _timed_forward(carved, prepared_sample["inputs"], torch=torch)
+            active_records = _active_records_for_sample(
+                sample_index=index,
+                model=carved,
+                replacements=replacement_payload,
+                experts_by_layer=sample_experts,
+                mode=expert_mode,
+            )
             diff = (dense_output.logits - carved_output.logits).abs()
             allclose = bool(torch.allclose(dense_output.logits, carved_output.logits, atol=atol, rtol=rtol))
             quality = _quality_metrics(
@@ -173,15 +184,6 @@ def evaluate_hf_dense_vs_carved(
                 inputs=prepared_sample["inputs"],
                 torch=torch,
             )
-            active_records = [
-                EvalActiveExperts(
-                    sample_index=index,
-                    layer=layer,
-                    experts=experts,
-                    mode=expert_mode,
-                )
-                for layer, experts in sample_experts.items()
-            ]
             samples.append(
                 EvalSample(
                     index=index,
@@ -208,6 +210,7 @@ def evaluate_hf_dense_vs_carved(
                     captures=captures["records"],
                     modules=attribution_modules,
                     experts_by_layer=sample_experts,
+                    mode=expert_mode,
                 )
             )
 
@@ -219,6 +222,18 @@ def evaluate_hf_dense_vs_carved(
             layer=int(record["layer"]),
             experts=[int(expert) for expert in record["experts"]],
             mode=str(record["mode"]),
+            token_count=int(record["token_count"]) if record.get("token_count") is not None else None,
+            top_k=int(record["top_k"]) if record.get("top_k") is not None else None,
+            expert_token_counts=(
+                {str(key): int(value) for key, value in record["expert_token_counts"].items()}
+                if isinstance(record.get("expert_token_counts"), dict)
+                else None
+            ),
+            mean_selected_weight_by_expert=(
+                {str(key): float(value) for key, value in record["mean_selected_weight_by_expert"].items()}
+                if isinstance(record.get("mean_selected_weight_by_expert"), dict)
+                else None
+            ),
         )
         for sample in samples
         for record in sample.active_experts
@@ -371,6 +386,7 @@ def _layer_attribution_for_sample(
     captures: dict[int, dict[str, Any]],
     modules: dict[int, Any],
     experts_by_layer: dict[int, list[int]],
+    mode: str,
 ) -> list[EvalLayerAttribution]:
     records = []
     for layer in sorted(modules):
@@ -381,9 +397,14 @@ def _layer_attribution_for_sample(
         buffer = next(module.buffers())
         hidden = captured["input"].to(device=buffer.device, dtype=buffer.dtype)
         dense_output = captured["output"].to(device=hidden.device, dtype=hidden.dtype)
-        experts = experts_by_layer[layer]
+        experts = experts_by_layer.get(layer, [])
         all_output = module.forward_all(hidden)
-        selected_output = module.forward_selected(hidden, experts=experts)
+        if mode == "learned-router":
+            selected_output = module.forward_token_router(hidden)
+            summary = module.last_router_summary or {}
+            experts = [int(expert) for expert in summary.get("experts", [])]
+        else:
+            selected_output = module.forward_selected(hidden, experts=experts)
         dense_all = _tensor_diff(dense_output, all_output)
         dense_selected = _tensor_diff(dense_output, selected_output)
         selected_all = _tensor_diff(selected_output, all_output)
@@ -531,8 +552,8 @@ def _dtype_from_string(value: Any, *, torch: Any) -> Any | None:
 
 
 def _normalize_expert_mode(expert_mode: str) -> str:
-    if expert_mode not in {"all", "default-pool", "router"}:
-        raise EvaluationError("expert_mode must be one of: all, default-pool, router")
+    if expert_mode not in {"all", "default-pool", "router", "learned-router"}:
+        raise EvaluationError("expert_mode must be one of: all, default-pool, router, learned-router")
     return expert_mode
 
 
@@ -545,6 +566,10 @@ def _active_experts_for_sample(
 ) -> dict[int, list[int]]:
     if mode == "all":
         experts = list(range(config.expert_count))
+    elif mode == "learned-router":
+        if config.token_router_top_k is None:
+            raise EvaluationError("expert_mode=learned-router requires token_router_top_k in the wrapper package")
+        return {}
     else:
         if router_plan is None:
             raise EvaluationError(f"expert_mode={mode} requires router metadata in the wrapper package")
@@ -554,6 +579,52 @@ def _active_experts_for_sample(
             document_index=int(sample.get("document_index", 0)) if mode == "router" else None,
         )
     return {int(layer): list(experts) for layer in config.layer_ids()}
+
+
+def _active_records_for_sample(
+    *,
+    sample_index: int,
+    model: Any,
+    replacements: dict[str, Any],
+    experts_by_layer: dict[int, list[int]],
+    mode: str,
+) -> list[EvalActiveExperts]:
+    records = []
+    for item in replacements.get("replaced", []):
+        layer = int(item["layer"])
+        module = model.get_submodule(str(item["module_path"]))
+        if mode == "learned-router":
+            summary = module.last_router_summary
+            if summary is None:
+                raise EvaluationError(f"learned-router mode produced no router summary for layer {layer}")
+            records.append(
+                EvalActiveExperts(
+                    sample_index=sample_index,
+                    layer=layer,
+                    experts=[int(expert) for expert in summary.get("experts", [])],
+                    mode=mode,
+                    token_count=int(summary.get("token_count", 0)),
+                    top_k=int(summary.get("top_k", 0)) if summary.get("top_k") is not None else None,
+                    expert_token_counts={
+                        str(key): int(value)
+                        for key, value in dict(summary.get("expert_token_counts", {})).items()
+                    },
+                    mean_selected_weight_by_expert={
+                        str(key): float(value)
+                        for key, value in dict(summary.get("mean_selected_weight_by_expert", {})).items()
+                    },
+                )
+            )
+        else:
+            records.append(
+                EvalActiveExperts(
+                    sample_index=sample_index,
+                    layer=layer,
+                    experts=experts_by_layer.get(layer, []),
+                    mode=mode,
+                )
+            )
+    return records
 
 
 def _apply_default_experts(
