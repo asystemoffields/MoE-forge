@@ -34,6 +34,7 @@ moe-forge eval-hf <model-path> --wrapper wrapper --output eval-report.json
 moe-forge eval-report-html --input eval-report.json --output eval-report.html
 moe-forge eval-compare eval-all.json eval-router.json --output eval-compare.json --html-output eval-compare.html
 moe-forge eval-batch --config eval-batch.json --output-dir eval-runs
+moe-forge recovery-plan --config recovery.json --output recovery-plan.json
 ```
 
 Supported inputs:
@@ -87,6 +88,7 @@ Current evaluation support includes:
 - self-contained HTML reports from eval JSON artifacts
 - multi-report comparison JSON/HTML for quality-first ranking, speed ratios, and active expert summaries
 - config-driven eval batches that run multiple expert modes, emit per-mode reports, compare completed runs, and preserve recovery-eval settings
+- teacher-KL recovery plan artifacts with loss, optimizer, sample, checkpoint, and before/after eval-batch comparison records
 
 Example eval batch config:
 
@@ -102,6 +104,23 @@ Example eval batch config:
     "enabled": true,
     "metrics": ["logits_parity", "teacher_kl"]
   }
+}
+```
+
+Example recovery plan config:
+
+```json
+{
+  "teacher_model": "C:/models/tiny-llama",
+  "student_model": "C:/models/tiny-llama",
+  "wrapper": "wrapper",
+  "output_dir": "recovery-run",
+  "train": { "text_file": "train.txt", "sequence_length": 128 },
+  "eval": { "input_ids": [[1, 2, 3, 4]] },
+  "loss": { "teacher_kl_weight": 1.0, "temperature": 2.0 },
+  "schedule": { "steps": 100, "eval_every_steps": 25 },
+  "before_eval_batch": "eval-before/eval-batch-manifest.json",
+  "after_eval_batch": "eval-after/eval-batch-manifest.json"
 }
 ```
 

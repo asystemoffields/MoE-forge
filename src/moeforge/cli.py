@@ -19,6 +19,7 @@ from .reports import (
     write_eval_html_report,
     write_eval_html_report_payload,
 )
+from .recovery import write_recovery_plan
 from .recipe import recipe_to_dict
 from .router import build_router_plan
 from .runtime import verify_carved_artifact
@@ -56,6 +57,8 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_eval_compare(args)
         if args.command == "eval-batch":
             return _cmd_eval_batch(args)
+        if args.command == "recovery-plan":
+            return _cmd_recovery_plan(args)
     except Exception as exc:  # pragma: no cover - CLI boundary
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -222,6 +225,14 @@ def build_parser() -> argparse.ArgumentParser:
     batch_parser.add_argument("--output-dir", type=Path, help="Override the config output_dir.")
     batch_parser.add_argument("--strict", action="store_true", help="Return non-zero when any completed mode fails.")
     batch_parser.add_argument("--print", action="store_true", help="Also print the batch manifest JSON.")
+
+    recovery_parser = subparsers.add_parser(
+        "recovery-plan",
+        help="Build a teacher-KL recovery-training plan artifact.",
+    )
+    recovery_parser.add_argument("--config", type=Path, required=True, help="Recovery plan JSON config.")
+    recovery_parser.add_argument("--output", type=Path, help="Recovery plan output path.")
+    recovery_parser.add_argument("--print", action="store_true", help="Also print the recovery plan JSON.")
 
     return parser
 
@@ -442,6 +453,15 @@ def _cmd_eval_batch(args: argparse.Namespace) -> int:
         return 1
     if manifest.get("evaluation", {}).get("strict") and not manifest.get("passed"):
         return 1
+    return 0
+
+
+def _cmd_recovery_plan(args: argparse.Namespace) -> int:
+    plan = write_recovery_plan(config_path=args.config, output_path=args.output)
+    if args.print:
+        print(json.dumps(plan, indent=2, sort_keys=True))
+    else:
+        print(f"wrote {plan['artifacts']['plan_path']}")
     return 0
 
 
