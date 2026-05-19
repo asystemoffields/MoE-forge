@@ -21,7 +21,7 @@ from .reports import (
 )
 from .recovery import write_recovery_plan
 from .recovery_experiment import run_recovery_experiment
-from .recovery_runner import export_recovered_wrapper, run_recovery
+from .recovery_runner import export_recovered_wrapper, run_recovery, validate_recovered_wrapper
 from .recipe import recipe_to_dict
 from .router import build_router_plan
 from .runtime import verify_carved_artifact
@@ -65,6 +65,8 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_recovery_run(args)
         if args.command == "recovery-export":
             return _cmd_recovery_export(args)
+        if args.command == "recovery-validate":
+            return _cmd_recovery_validate(args)
         if args.command == "recovery-experiment":
             return _cmd_recovery_experiment(args)
     except Exception as exc:  # pragma: no cover - CLI boundary
@@ -277,6 +279,26 @@ def build_parser() -> argparse.ArgumentParser:
         "--print",
         action="store_true",
         help="Also print the recovery export report JSON.",
+    )
+
+    recovery_validate_parser = subparsers.add_parser(
+        "recovery-validate",
+        help="Validate a recovered wrapper package against its source wrapper and checkpoint.",
+    )
+    recovery_validate_parser.add_argument("--source-wrapper", type=Path, required=True, help="Original wrapper package directory.")
+    recovery_validate_parser.add_argument("--recovered-wrapper", type=Path, required=True, help="Recovered wrapper package directory.")
+    recovery_validate_parser.add_argument("--checkpoint", type=Path, help="Recovery checkpoint metadata JSON.")
+    recovery_validate_parser.add_argument("--export-report", type=Path, help="Recovery export report JSON.")
+    recovery_validate_parser.add_argument(
+        "--output",
+        type=Path,
+        default=Path("recovered-wrapper-validation.json"),
+        help="Validation report output path.",
+    )
+    recovery_validate_parser.add_argument(
+        "--print",
+        action="store_true",
+        help="Also print the validation report JSON.",
     )
 
     recovery_experiment_parser = subparsers.add_parser(
@@ -550,6 +572,21 @@ def _cmd_recovery_export(args: argparse.Namespace) -> int:
     else:
         print(f"wrote {report['output_dir']}")
     return 0
+
+
+def _cmd_recovery_validate(args: argparse.Namespace) -> int:
+    report = validate_recovered_wrapper(
+        source_wrapper=args.source_wrapper,
+        recovered_wrapper=args.recovered_wrapper,
+        checkpoint_path=args.checkpoint,
+        export_report_path=args.export_report,
+        output_path=args.output,
+    )
+    if args.print:
+        print(json.dumps(report, indent=2, sort_keys=True))
+    else:
+        print(f"{report['status']}; wrote {args.output}")
+    return 0 if report.get("passed") else 1
 
 
 def _cmd_recovery_experiment(args: argparse.Namespace) -> int:

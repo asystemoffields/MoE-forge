@@ -37,6 +37,7 @@ moe-forge eval-batch --config eval-batch.json --output-dir eval-runs
 moe-forge recovery-plan --config recovery.json --output recovery-plan.json
 moe-forge recovery-run --plan recovery-plan.json --output recovery-run-report.json
 moe-forge recovery-export --checkpoint checkpoints/checkpoint-step-100.json --wrapper wrapper --output-dir recovered-wrapper
+moe-forge recovery-validate --source-wrapper wrapper --recovered-wrapper recovered-wrapper --checkpoint checkpoints/checkpoint-step-100.json
 moe-forge recovery-experiment --config recovery-experiment.json --output-dir recovery-experiment
 ```
 
@@ -94,7 +95,8 @@ Current evaluation support includes:
 - teacher-KL recovery plan artifacts with loss, optimizer, sample, checkpoint, and before/after eval-batch comparison records
 - a tiny recovery runner that consumes recovery plans, computes teacher-KL/logits losses on input-id batches, promotes carved tensors for training, and writes checkpoint metadata
 - recovery checkpoint export that applies trainable tensor state back into a recovered wrapper package
-- recovery experiment orchestration that runs before/after eval batches around recovery and writes JSON/HTML comparison reports
+- recovered-wrapper validation that reloads package metadata, checks checkpoint/export compatibility, and compares original vs recovered safetensors metadata
+- recovery experiment orchestration that runs before/after eval batches around recovery and writes JSON/HTML comparison reports with validation evidence
 
 Example eval batch config:
 
@@ -137,6 +139,7 @@ Example recovery experiment config:
   "model": "C:/models/tiny-llama",
   "wrapper": "wrapper",
   "output_dir": "recovery-experiment",
+  "strict_validation": true,
   "eval": {
     "expert_modes": ["all", "default-pool", "router"],
     "input_ids": [[1, 2, 3, 4]],

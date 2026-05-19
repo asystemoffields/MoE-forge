@@ -5,7 +5,7 @@ from pathlib import Path
 import shutil
 from typing import Any
 
-from .hf_runtime import MoEForgeCarvedMLPModule, replace_hf_mlp_modules
+from .hf_runtime import MoEForgeCarvedMLPModule, MoEForgeConfig, replace_hf_mlp_modules
 from .recovery import compare_eval_batch_manifests
 from .wrapper import load_wrapper_config
 
@@ -199,6 +199,100 @@ def export_recovered_wrapper(
     return report
 
 
+def validate_recovered_wrapper(
+    *,
+    source_wrapper: Path,
+    recovered_wrapper: Path,
+    checkpoint_path: Path | None = None,
+    export_report_path: Path | None = None,
+    output_path: Path | None = None,
+) -> dict[str, Any]:
+    report: dict[str, Any] = {
+        "format": "moeforge_recovered_wrapper_validation",
+        "source_wrapper": str(source_wrapper),
+        "recovered_wrapper": str(recovered_wrapper),
+        "checkpoint_path": str(checkpoint_path) if checkpoint_path is not None else None,
+        "export_report_path": str(export_report_path) if export_report_path is not None else None,
+        "status": "validated",
+        "passed": True,
+        "errors": [],
+        "warnings": [],
+    }
+    errors: list[str] = report["errors"]
+    warnings: list[str] = report["warnings"]
+
+    source_config_path = source_wrapper / "moeforge_config.json"
+    recovered_config_path = recovered_wrapper / "moeforge_config.json"
+    source_config = _load_wrapper_config_for_validation(source_config_path, errors=errors)
+    recovered_config = _load_wrapper_config_for_validation(recovered_config_path, errors=errors)
+    if source_config is None or recovered_config is None:
+        return _finish_validation_report(report=report, output_path=output_path)
+
+    source_artifact = _resolve_package_path(source_wrapper, source_config.artifact_path)
+    recovered_artifact = _resolve_package_path(recovered_wrapper, recovered_config.artifact_path)
+    _require_file(source_artifact, label="source wrapper artifact", errors=errors)
+    _require_file(recovered_artifact, label="recovered wrapper artifact", errors=errors)
+    report["wrapper_configs"] = {
+        "source_config": str(source_config_path),
+        "recovered_config": str(recovered_config_path),
+        "source_artifact": str(source_artifact),
+        "recovered_artifact": str(recovered_artifact),
+        "source_artifact_ref": source_config.artifact_path,
+        "recovered_artifact_ref": recovered_config.artifact_path,
+        "source_model": source_config.source_model,
+        "recovered_source_model": recovered_config.source_model,
+        "source_layers": [item.layer for item in source_config.layers],
+        "recovered_layers": [item.layer for item in recovered_config.layers],
+    }
+
+    config_checks = _wrapper_config_checks(source_config=source_config, recovered_config=recovered_config)
+    report["config_checks"] = config_checks
+    for check, passed in config_checks.items():
+        if not passed:
+            errors.append(f"wrapper config check failed: {check}")
+
+    resolved_export_report_path = export_report_path or recovered_wrapper / "recovery-export-report.json"
+    export_report = _load_optional_json(resolved_export_report_path, label="recovery export report", warnings=warnings)
+    report["export_report_path"] = str(resolved_export_report_path)
+    if export_report is not None:
+        report["export"] = _export_validation(
+            export_report=export_report,
+            source_wrapper=source_wrapper,
+            recovered_artifact=recovered_artifact,
+            warnings=warnings,
+            errors=errors,
+        )
+        checkpoint_path = checkpoint_path or _path_or_none(export_report.get("checkpoint_path"))
+
+    checkpoint = None
+    if checkpoint_path is not None:
+        checkpoint = _load_optional_json(checkpoint_path, label="recovery checkpoint metadata", warnings=warnings)
+        report["checkpoint_path"] = str(checkpoint_path)
+    if checkpoint is not None:
+        report["checkpoint"] = _checkpoint_validation(
+            checkpoint=checkpoint,
+            checkpoint_path=checkpoint_path or Path("."),
+            export_report=export_report,
+            errors=errors,
+        )
+
+    if source_artifact.exists() and recovered_artifact.exists():
+        report["tensor_comparison"] = _compare_wrapper_tensors(
+            source_artifact=source_artifact,
+            recovered_artifact=recovered_artifact,
+            export_report=export_report,
+            errors=errors,
+        )
+
+    if recovered_artifact.exists() and not errors:
+        report["reload"] = _reload_recovered_layers(
+            recovered_wrapper=recovered_wrapper,
+            errors=errors,
+        )
+
+    return _finish_validation_report(report=report, output_path=output_path)
+
+
 def _loss_parts(
     *,
     student_logits: Any,
@@ -372,6 +466,262 @@ def _load_checkpoint_metadata(path: Path) -> dict[str, Any]:
     if not payload.get("state_path"):
         raise RecoveryRunError("recovery checkpoint metadata is missing state_path")
     return payload
+
+
+def _load_wrapper_config_for_validation(path: Path, *, errors: list[str]) -> Any | None:
+    if not path.exists():
+        errors.append(f"wrapper config not found: {path}")
+        return None
+    try:
+        return load_wrapper_config(path)
+    except Exception as exc:
+        errors.append(f"could not load wrapper config {path}: {exc}")
+        return None
+
+
+def _wrapper_config_checks(*, source_config: Any, recovered_config: Any) -> dict[str, bool]:
+    return {
+        "format_version_match": source_config.format_version == recovered_config.format_version,
+        "model_type_match": source_config.model_type == recovered_config.model_type,
+        "adapter_family_match": source_config.adapter_family == recovered_config.adapter_family,
+        "source_model_match": source_config.source_model == recovered_config.source_model,
+        "activation_match": source_config.activation == recovered_config.activation,
+        "expert_count_match": source_config.expert_count == recovered_config.expert_count,
+        "layer_signature_match": _layer_signature(source_config.layers) == _layer_signature(recovered_config.layers),
+    }
+
+
+def _layer_signature(layers: list[Any]) -> list[dict[str, Any]]:
+    return [
+        {
+            "layer": int(layer.layer),
+            "width": layer.width,
+            "tensor_prefix": str(layer.tensor_prefix),
+            "expert_count": int(layer.expert_count),
+            "shared_channels": int(layer.shared_channels),
+            "expert_channels": [int(value) for value in layer.expert_channels],
+        }
+        for layer in layers
+    ]
+
+
+def _export_validation(
+    *,
+    export_report: dict[str, Any],
+    source_wrapper: Path,
+    recovered_artifact: Path,
+    warnings: list[str],
+    errors: list[str],
+) -> dict[str, Any]:
+    checks = {
+        "format": export_report.get("format"),
+        "updated_tensor_count": export_report.get("updated_tensor_count"),
+        "updated_tensors": export_report.get("updated_tensors") if isinstance(export_report.get("updated_tensors"), list) else [],
+    }
+    if export_report.get("format") != "moeforge_recovery_export":
+        errors.append("recovery export report has unexpected format")
+    artifact_path = _path_or_none(export_report.get("artifact_path"))
+    if artifact_path is None:
+        errors.append("recovery export report is missing artifact_path")
+    elif artifact_path.exists() and recovered_artifact.exists() and artifact_path.resolve() != recovered_artifact.resolve():
+        errors.append("recovery export report artifact_path does not match recovered wrapper config")
+    source_report_wrapper = _path_or_none(export_report.get("source_wrapper"))
+    if source_report_wrapper is not None and source_report_wrapper.exists() and source_wrapper.exists():
+        if source_report_wrapper.resolve() != source_wrapper.resolve():
+            errors.append("recovery export report source_wrapper does not match validation source_wrapper")
+    updated_tensors = checks["updated_tensors"]
+    if checks["updated_tensor_count"] != len(updated_tensors):
+        errors.append("recovery export report updated_tensor_count does not match updated_tensors length")
+    if not updated_tensors:
+        warnings.append("recovery export report did not record updated tensors")
+    return checks
+
+
+def _checkpoint_validation(
+    *,
+    checkpoint: dict[str, Any],
+    checkpoint_path: Path,
+    export_report: dict[str, Any] | None,
+    errors: list[str],
+) -> dict[str, Any]:
+    state_path = _path_or_none(checkpoint.get("state_path"))
+    if state_path is not None and not state_path.is_absolute():
+        state_path = checkpoint_path.parent / state_path
+    promoted = checkpoint.get("promoted_carved_parameters")
+    if checkpoint.get("format") != "moeforge_recovery_checkpoint":
+        errors.append("recovery checkpoint metadata has unexpected format")
+    if state_path is None:
+        errors.append("recovery checkpoint metadata is missing state_path")
+    elif not state_path.exists():
+        errors.append(f"recovery checkpoint state file not found: {state_path}")
+    if not isinstance(promoted, list) or not promoted:
+        errors.append("recovery checkpoint metadata does not include promoted carved parameters")
+        promoted = []
+    promoted_tensors = {
+        str(item["tensor"])
+        for item in promoted
+        if isinstance(item, dict) and item.get("tensor") is not None
+    }
+    updated_tensors = set()
+    if export_report is not None and isinstance(export_report.get("updated_tensors"), list):
+        updated_tensors = {
+            str(item["tensor"])
+            for item in export_report["updated_tensors"]
+            if isinstance(item, dict) and item.get("tensor") is not None
+        }
+        if promoted_tensors and updated_tensors != promoted_tensors:
+            errors.append("recovery export updated tensors do not match checkpoint promoted tensors")
+    return {
+        "format": checkpoint.get("format"),
+        "step": checkpoint.get("step"),
+        "state_path": str(state_path) if state_path is not None else None,
+        "state_exists": bool(state_path is not None and state_path.exists()),
+        "promoted_carved_parameter_count": len(promoted),
+        "promoted_tensor_count": len(promoted_tensors),
+        "exported_tensor_count": len(updated_tensors),
+    }
+
+
+def _compare_wrapper_tensors(
+    *,
+    source_artifact: Path,
+    recovered_artifact: Path,
+    export_report: dict[str, Any] | None,
+    errors: list[str],
+) -> dict[str, Any]:
+    try:
+        import torch
+        from safetensors.torch import load_file
+    except ImportError as exc:  # pragma: no cover - optional dependency boundary
+        raise RecoveryRunError("recovered wrapper validation requires torch and safetensors") from exc
+
+    source_tensors = load_file(str(source_artifact), device="cpu")
+    recovered_tensors = load_file(str(recovered_artifact), device="cpu")
+    source_names = set(source_tensors)
+    recovered_names = set(recovered_tensors)
+    missing = sorted(source_names - recovered_names)
+    extra = sorted(recovered_names - source_names)
+    if missing:
+        errors.append(f"recovered artifact is missing {len(missing)} source tensors")
+    if extra:
+        errors.append(f"recovered artifact has {len(extra)} unexpected tensors")
+
+    updated_names = _updated_tensor_names(export_report)
+    shape_mismatches = []
+    dtype_mismatches = []
+    changed_tensors = []
+    updated_tensor_metadata = []
+    for name in sorted(source_names & recovered_names):
+        source = source_tensors[name]
+        recovered = recovered_tensors[name]
+        source_shape = list(source.shape)
+        recovered_shape = list(recovered.shape)
+        source_dtype = str(source.dtype).replace("torch.", "")
+        recovered_dtype = str(recovered.dtype).replace("torch.", "")
+        if source_shape != recovered_shape:
+            shape_mismatches.append({"tensor": name, "source_shape": source_shape, "recovered_shape": recovered_shape})
+            continue
+        if source_dtype != recovered_dtype:
+            dtype_mismatches.append({"tensor": name, "source_dtype": source_dtype, "recovered_dtype": recovered_dtype})
+        diff = (source - recovered).abs() if source.is_floating_point() else (source != recovered).to(torch.float32)
+        max_abs = float(diff.max().item()) if diff.numel() else 0.0
+        mean_abs = float(diff.mean().item()) if diff.numel() else 0.0
+        changed = bool(max_abs != 0.0)
+        record = {
+            "tensor": name,
+            "shape": recovered_shape,
+            "source_dtype": source_dtype,
+            "recovered_dtype": recovered_dtype,
+            "max_abs_delta": max_abs,
+            "mean_abs_delta": mean_abs,
+        }
+        if changed:
+            changed_tensors.append(record)
+        if name in updated_names:
+            updated_tensor_metadata.append(record)
+    for item in shape_mismatches:
+        errors.append(f"recovered tensor shape mismatch: {item['tensor']}")
+    for item in dtype_mismatches:
+        errors.append(f"recovered tensor dtype mismatch: {item['tensor']}")
+    updated_missing = sorted(updated_names - recovered_names)
+    if updated_missing:
+        errors.append(f"export report references {len(updated_missing)} tensors missing from recovered artifact")
+    return {
+        "source_artifact": str(source_artifact),
+        "recovered_artifact": str(recovered_artifact),
+        "source_tensor_count": len(source_tensors),
+        "recovered_tensor_count": len(recovered_tensors),
+        "common_tensor_count": len(source_names & recovered_names),
+        "missing_from_recovered": missing,
+        "extra_in_recovered": extra,
+        "shape_mismatches": shape_mismatches,
+        "dtype_mismatches": dtype_mismatches,
+        "updated_tensor_count": len(updated_names),
+        "updated_tensors": updated_tensor_metadata,
+        "changed_tensor_count": len(changed_tensors),
+        "changed_tensors": changed_tensors,
+    }
+
+
+def _reload_recovered_layers(*, recovered_wrapper: Path, errors: list[str]) -> dict[str, Any]:
+    loaded_layers = []
+    try:
+        config = MoEForgeConfig.from_package(recovered_wrapper)
+        for layer in config.layer_ids():
+            module = MoEForgeCarvedMLPModule.from_package(recovered_wrapper, layer=layer, config=config)
+            loaded_layers.append(
+                {
+                    "layer": layer,
+                    "expert_count": module.expert_count,
+                    "tensor_buffer_count": len(module._tensor_buffers),
+                }
+            )
+    except Exception as exc:
+        errors.append(f"could not reload recovered wrapper layers: {exc}")
+    return {
+        "loaded_layer_count": len(loaded_layers),
+        "loaded_layers": loaded_layers,
+    }
+
+
+def _updated_tensor_names(export_report: dict[str, Any] | None) -> set[str]:
+    if export_report is None or not isinstance(export_report.get("updated_tensors"), list):
+        return set()
+    return {
+        str(item["tensor"])
+        for item in export_report["updated_tensors"]
+        if isinstance(item, dict) and item.get("tensor") is not None
+    }
+
+
+def _finish_validation_report(*, report: dict[str, Any], output_path: Path | None) -> dict[str, Any]:
+    report["passed"] = not bool(report.get("errors"))
+    report["status"] = "validated" if report["passed"] else "error"
+    if output_path is not None:
+        _write_json(output_path, report)
+    return report
+
+
+def _load_optional_json(path: Path, *, label: str, warnings: list[str]) -> dict[str, Any] | None:
+    if not path.exists():
+        warnings.append(f"{label} not found: {path}")
+        return None
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        warnings.append(f"{label} is not a JSON object: {path}")
+        return None
+    return payload
+
+
+def _path_or_none(value: Any) -> Path | None:
+    if value is None or str(value).strip() == "":
+        return None
+    return Path(str(value))
+
+
+def _require_file(path: Path, *, label: str, errors: list[str]) -> None:
+    if not path.exists():
+        errors.append(f"{label} not found: {path}")
 
 
 def _promoted_tensor_map(checkpoint: dict[str, Any]) -> dict[str, str]:

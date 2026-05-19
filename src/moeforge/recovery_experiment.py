@@ -8,7 +8,7 @@ from typing import Any
 from .batch import run_eval_batch
 from .evaluation import evaluate_hf_dense_vs_carved
 from .recovery import compare_eval_batch_manifests, write_recovery_plan
-from .recovery_runner import export_recovered_wrapper, run_recovery
+from .recovery_runner import export_recovered_wrapper, run_recovery, validate_recovered_wrapper
 
 
 class RecoveryExperimentError(RuntimeError):
@@ -23,6 +23,7 @@ def run_recovery_experiment(
     evaluator: Any = evaluate_hf_dense_vs_carved,
     recovery_runner: Any = run_recovery,
     exporter: Any = export_recovered_wrapper,
+    validator: Any = validate_recovered_wrapper,
 ) -> dict[str, Any]:
     config = _load_config(config_path)
     base_dir = config_path.parent
@@ -66,6 +67,18 @@ def run_recovery_experiment(
         wrapper_dir=wrapper,
         output_dir=recovered_wrapper,
     )
+    validation_path = run_dir / "recovered-wrapper-validation.json"
+    validation_report = validator(
+        source_wrapper=wrapper,
+        recovered_wrapper=recovered_wrapper,
+        checkpoint_path=checkpoint_path,
+        export_report_path=Path(str(export_report["output_dir"])) / "recovery-export-report.json",
+        output_path=validation_path,
+    )
+    if validation_report.get("status") != "validated" and bool(config.get("strict_validation", True)):
+        raise RecoveryExperimentError(
+            f"recovered wrapper validation failed; see {validation_path}"
+        )
 
     after_config_path = run_dir / "after" / "eval-batch-config.json"
     after_config = _eval_batch_config(
@@ -98,6 +111,8 @@ def run_recovery_experiment(
         recovery_plan=recovery_plan,
         recovery_report=recovery_report,
         export_report=export_report,
+        validation_report=validation_report,
+        validation_path=validation_path,
         after_config_path=after_config_path,
         after_manifest=after_manifest,
         comparison=comparison,
@@ -115,6 +130,12 @@ def render_recovery_experiment_html(report: dict[str, Any]) -> str:
     summary = _dict(report.get("summary"))
     rows = []
     comparison = _dict(report.get("before_after_eval"))
+    validation = _dict(report.get("recovered_wrapper_validation"))
+    tensor_comparison = _dict(validation.get("tensor_comparison"))
+    reload_report = _dict(validation.get("reload"))
+    artifacts = _dict(report.get("artifacts"))
+    before_batch = _dict(report.get("before_eval_batch"))
+    after_batch = _dict(report.get("after_eval_batch"))
     for item in comparison.get("mode_deltas", []):
         if not isinstance(item, dict):
             continue
@@ -128,6 +149,36 @@ def render_recovery_experiment_html(report: dict[str, Any]) -> str:
             f"<td>{escape(_number(item.get('latency_ratio_delta')))}</td>"
             "</tr>"
         )
+    updated_rows = []
+    for item in tensor_comparison.get("updated_tensors", [])[:20]:
+        if not isinstance(item, dict):
+            continue
+        updated_rows.append(
+            "<tr>"
+            f"<td>{escape(_text(item.get('tensor')))}</td>"
+            f"<td>{escape(_text(item.get('shape')))}</td>"
+            f"<td>{escape(_text(item.get('source_dtype')))}</td>"
+            f"<td>{escape(_text(item.get('recovered_dtype')))}</td>"
+            f"<td>{escape(_number(item.get('max_abs_delta')))}</td>"
+            f"<td>{escape(_number(item.get('mean_abs_delta')))}</td>"
+            "</tr>"
+        )
+    check_rows = []
+    for check, passed in _dict(validation.get("config_checks")).items():
+        check_rows.append(
+            "<tr>"
+            f"<td>{escape(_text(check))}</td>"
+            f"<td>{escape('pass' if passed else 'fail')}</td>"
+            "</tr>"
+        )
+    artifact_rows = [
+        ("Before Eval Manifest", artifacts.get("before_eval_manifest")),
+        ("After Eval Manifest", artifacts.get("after_eval_manifest")),
+        ("Before/After Comparison", artifacts.get("before_after_comparison")),
+        ("Recovery Run Report", artifacts.get("recovery_run_report")),
+        ("Recovery Export Report", artifacts.get("recovery_export_report")),
+        ("Recovered Wrapper Validation", artifacts.get("recovered_wrapper_validation")),
+    ]
     return "\n".join(
         [
             "<!doctype html>",
@@ -146,6 +197,38 @@ def render_recovery_experiment_html(report: dict[str, Any]) -> str:
             _card("Regressed Modes", summary.get("regressed_modes_by_max_abs_error")),
             _card("Initial Loss", summary.get("initial_loss")),
             _card("Final Loss", summary.get("final_loss")),
+            _card("Validation", validation.get("status")),
+            _card("Updated Tensors", tensor_comparison.get("updated_tensor_count")),
+            _card("Changed Tensors", tensor_comparison.get("changed_tensor_count")),
+            _card("Reloaded Layers", reload_report.get("loaded_layer_count")),
+            "</section>",
+            "<section>",
+            "<h2>Recovered Wrapper</h2>",
+            '<div class="grid-2">',
+            _fact_panel(
+                "Reload",
+                [
+                    ("Status", validation.get("status")),
+                    ("Source tensors", tensor_comparison.get("source_tensor_count")),
+                    ("Recovered tensors", tensor_comparison.get("recovered_tensor_count")),
+                    ("Missing tensors", len(tensor_comparison.get("missing_from_recovered", []))),
+                    ("Extra tensors", len(tensor_comparison.get("extra_in_recovered", []))),
+                ],
+            ),
+            _fact_panel(
+                "Before/After Evidence",
+                [
+                    ("Before runs", before_batch.get("completed_report_count")),
+                    ("After runs", after_batch.get("completed_report_count")),
+                    ("Compared modes", comparison.get("compared_mode_count")),
+                    ("Steps completed", summary.get("steps_completed")),
+                ],
+            ),
+            "</div>",
+            '<div class="table-wrap"><table>',
+            "<thead><tr><th>Config Check</th><th>Status</th></tr></thead>",
+            f"<tbody>{''.join(check_rows)}</tbody>",
+            "</table></div>",
             "</section>",
             "<section>",
             "<h2>Mode Deltas</h2>",
@@ -155,6 +238,23 @@ def render_recovery_experiment_html(report: dict[str, Any]) -> str:
             "<th>Delta Max</th><th>Delta Latency</th>"
             "</tr></thead>",
             f"<tbody>{''.join(rows)}</tbody>",
+            "</table></div>",
+            "</section>",
+            "<section>",
+            "<h2>Updated Tensor Metadata</h2>",
+            '<div class="table-wrap"><table>',
+            "<thead><tr>"
+            "<th>Tensor</th><th>Shape</th><th>Source Dtype</th><th>Recovered Dtype</th>"
+            "<th>Max Delta</th><th>Mean Delta</th>"
+            "</tr></thead>",
+            f"<tbody>{''.join(updated_rows)}</tbody>",
+            "</table></div>",
+            "</section>",
+            "<section>",
+            "<h2>Artifacts</h2>",
+            '<div class="table-wrap"><table>',
+            "<thead><tr><th>Artifact</th><th>Path</th></tr></thead>",
+            f"<tbody>{''.join(_artifact_row(label, value) for label, value in artifact_rows)}</tbody>",
             "</table></div>",
             "</section>",
             "</main>",
@@ -178,6 +278,8 @@ def _experiment_report(
     recovery_plan: dict[str, Any],
     recovery_report: dict[str, Any],
     export_report: dict[str, Any],
+    validation_report: dict[str, Any],
+    validation_path: Path,
     after_config_path: Path,
     after_manifest: dict[str, Any],
     comparison: dict[str, Any],
@@ -186,6 +288,8 @@ def _experiment_report(
     report_path: Path,
 ) -> dict[str, Any]:
     comparison_summary = _dict(comparison.get("summary"))
+    tensor_comparison = _dict(validation_report.get("tensor_comparison"))
+    reload_report = _dict(validation_report.get("reload"))
     return {
         "format": "moeforge_recovery_experiment",
         "config_path": str(config_path),
@@ -197,6 +301,10 @@ def _experiment_report(
             "initial_loss": recovery_report.get("initial_loss"),
             "final_loss": recovery_report.get("final_loss"),
             "steps_completed": recovery_report.get("steps_completed"),
+            "recovered_wrapper_validation_status": validation_report.get("status"),
+            "recovered_updated_tensor_count": tensor_comparison.get("updated_tensor_count"),
+            "recovered_changed_tensor_count": tensor_comparison.get("changed_tensor_count"),
+            "recovered_reload_layer_count": reload_report.get("loaded_layer_count"),
             **comparison_summary,
         },
         "artifacts": {
@@ -213,6 +321,7 @@ def _experiment_report(
             "recovery_export_report": str(
                 Path(str(export_report["output_dir"])) / "recovery-export-report.json"
             ),
+            "recovered_wrapper_validation": str(validation_path),
             "after_eval_config": str(after_config_path),
             "after_eval_manifest": str(
                 Path(str(after_manifest["output_dir"])) / "eval-batch-manifest.json"
@@ -225,6 +334,7 @@ def _experiment_report(
         "after_eval_batch": after_manifest,
         "recovery_run": recovery_report,
         "recovery_export": export_report,
+        "recovered_wrapper_validation": validation_report,
         "before_after_eval": comparison,
     }
 
@@ -339,6 +449,23 @@ def _card(label: str, value: Any) -> str:
     )
 
 
+def _fact_panel(title: str, items: list[tuple[str, Any]]) -> str:
+    rows = "".join(
+        f'<div class="fact"><span>{escape(label)}</span><strong>{escape(_number(value))}</strong></div>'
+        for label, value in items
+    )
+    return f'<article class="panel"><h3>{escape(title)}</h3>{rows}</article>'
+
+
+def _artifact_row(label: str, value: Any) -> str:
+    return (
+        "<tr>"
+        f"<td>{escape(label)}</td>"
+        f"<td><code>{escape(_text(value))}</code></td>"
+        "</tr>"
+    )
+
+
 def _number(value: Any) -> str:
     if value is None:
         return "n/a"
@@ -362,9 +489,17 @@ h2 { margin: 28px 0 12px; font-size: 18px; }
 .card { background: #fff; border: 1px solid #d8dee8; border-radius: 8px; padding: 14px; }
 .label { color: #64748b; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0; }
 .value { margin-top: 6px; font-size: 20px; font-weight: 750; overflow-wrap: anywhere; }
+.grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin-bottom: 12px; }
+.panel { background: #fff; border: 1px solid #d8dee8; border-radius: 8px; padding: 14px; }
+.panel h3 { margin: 0 0 12px; font-size: 15px; }
+.fact { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 8px 0; border-top: 1px solid #edf1f5; }
+.fact:first-of-type { border-top: 0; }
+.fact span { color: #64748b; font-size: 13px; }
+.fact strong { font-size: 14px; text-align: right; overflow-wrap: anywhere; }
 .table-wrap { overflow-x: auto; background: #fff; border: 1px solid #d8dee8; border-radius: 8px; }
 table { width: 100%; border-collapse: collapse; font-size: 14px; }
 th, td { padding: 10px 12px; border-bottom: 1px solid #e7ebf0; text-align: left; vertical-align: top; }
+code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size: 12px; overflow-wrap: anywhere; }
 thead th { background: #edf1f5; color: #334155; font-size: 12px; text-transform: uppercase; letter-spacing: 0; }
 tbody tr:last-child td { border-bottom: 0; }
 """

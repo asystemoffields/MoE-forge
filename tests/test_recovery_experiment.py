@@ -35,6 +35,7 @@ def test_run_recovery_experiment_orchestrates_before_recover_after(tmp_path: Pat
         evaluator=_fake_evaluator,
         recovery_runner=_fake_recovery_runner,
         exporter=_fake_exporter,
+        validator=_fake_validator,
     )
 
     saved = json.loads((output_dir / "recovery-experiment-report.json").read_text(encoding="utf-8"))
@@ -47,8 +48,11 @@ def test_run_recovery_experiment_orchestrates_before_recover_after(tmp_path: Pat
     assert after_config["wrapper"] == str(output_dir / "recovered-wrapper")
     assert report["summary"]["initial_loss"] == 1.0
     assert report["summary"]["final_loss"] == 0.25
+    assert report["summary"]["recovered_wrapper_validation_status"] == "validated"
+    assert report["summary"]["recovered_updated_tensor_count"] == 1
     assert comparison["mode_deltas"][0]["max_abs_error_delta"] < 0
     assert Path(report["artifacts"]["html_report"]).exists()
+    assert Path(report["artifacts"]["recovered_wrapper_validation"]).exists()
     assert Path(report["artifacts"]["before_eval_manifest"]).exists()
     assert Path(report["artifacts"]["after_eval_manifest"]).exists()
 
@@ -142,4 +146,48 @@ def _fake_exporter(*, checkpoint_path: Path, wrapper_dir: Path, output_dir: Path
         "updated_tensor_count": 1,
     }
     (output_dir / "recovery-export-report.json").write_text(json.dumps(report), encoding="utf-8")
+    return report
+
+
+def _fake_validator(
+    *,
+    source_wrapper: Path,
+    recovered_wrapper: Path,
+    checkpoint_path: Path,
+    export_report_path: Path,
+    output_path: Path,
+) -> dict:
+    report = {
+        "format": "moeforge_recovered_wrapper_validation",
+        "source_wrapper": str(source_wrapper),
+        "recovered_wrapper": str(recovered_wrapper),
+        "checkpoint_path": str(checkpoint_path),
+        "export_report_path": str(export_report_path),
+        "status": "validated",
+        "passed": True,
+        "config_checks": {"layer_signature_match": True},
+        "tensor_comparison": {
+            "source_tensor_count": 2,
+            "recovered_tensor_count": 2,
+            "updated_tensor_count": 1,
+            "changed_tensor_count": 1,
+            "missing_from_recovered": [],
+            "extra_in_recovered": [],
+            "updated_tensors": [
+                {
+                    "tensor": "moe.layers.0.mlp.experts.0.gate.weight",
+                    "shape": [1, 2],
+                    "source_dtype": "float32",
+                    "recovered_dtype": "float32",
+                    "max_abs_delta": 0.1,
+                    "mean_abs_delta": 0.05,
+                }
+            ],
+        },
+        "reload": {"loaded_layer_count": 1, "loaded_layers": [{"layer": 0}]},
+        "errors": [],
+        "warnings": [],
+    }
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(report), encoding="utf-8")
     return report

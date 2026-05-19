@@ -8,7 +8,7 @@ import pytest
 from moeforge.carve import build_carve_manifest
 from moeforge.materialize import materialize_carve_manifest
 from moeforge.recovery import write_recovery_plan
-from moeforge.recovery_runner import export_recovered_wrapper, run_recovery
+from moeforge.recovery_runner import export_recovered_wrapper, run_recovery, validate_recovered_wrapper
 from moeforge.wrapper import export_wrapper_package
 
 torch = pytest.importorskip("torch")
@@ -64,6 +64,19 @@ def test_run_recovery_trains_tiny_wrapper_and_writes_checkpoints(tmp_path: Path)
     assert recovered_config["artifact_path"] == "recovered-carved-experts.safetensors"
     assert (recovered_dir / "recovered-carved-experts.safetensors").exists()
     assert (recovered_dir / "recovery-export-report.json").exists()
+
+    validation = validate_recovered_wrapper(
+        source_wrapper=package_dir,
+        recovered_wrapper=recovered_dir,
+        checkpoint_path=recovery_dir / "checkpoints" / "checkpoint-step-2.json",
+        export_report_path=recovered_dir / "recovery-export-report.json",
+        output_path=recovered_dir / "recovered-wrapper-validation.json",
+    )
+    assert validation["status"] == "validated"
+    assert validation["tensor_comparison"]["updated_tensor_count"] == export_report["updated_tensor_count"]
+    assert validation["tensor_comparison"]["source_tensor_count"] == validation["tensor_comparison"]["recovered_tensor_count"]
+    assert validation["reload"]["loaded_layer_count"] == 2
+    assert (recovered_dir / "recovered-wrapper-validation.json").exists()
 
 
 def _write_wrapper_package(tmp_path: Path, model: Path) -> Path:
