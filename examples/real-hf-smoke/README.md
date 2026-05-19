@@ -2,6 +2,8 @@
 
 This recipe runs the carved-MoE path on a small local Hugging Face checkpoint with tokenizer-backed text samples. It is intended for checkpoints such as `HuggingFaceTB/SmolLM-135M` or another local Llama/Qwen/Gemma-style causal LM folder.
 
+The default `recipe.json` uses `moe_layers: "all"` so every mapped FFN layer is converted into carved shared/expert tensors.
+
 Run these commands from this directory after installing the HF extras:
 
 ```powershell

@@ -24,6 +24,7 @@ The first implementation slice focuses on reliable inspection and recipe plannin
 moe-forge adapters
 moe-forge inspect <model-path> --json
 moe-forge plan <model-path> --goal balanced --output recipe.json
+moe-forge plan <model-path> --moe-layers all --output whole-model-recipe.json
 moe-forge profile <model-path> --text-file calibration.txt --output profile.json
 moe-forge router-plan --profile profile.json --pool-size 2 --output router-plan.json
 moe-forge carve-manifest <model-path> --recipe recipe.json --profile profile.json --output carve-manifest.json

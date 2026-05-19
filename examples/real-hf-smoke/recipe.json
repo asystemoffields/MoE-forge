@@ -2,5 +2,5 @@
   "strategy": "carved_mlp",
   "experts": 3,
   "shared_ratio": 0.25,
-  "moe_layers": [0, 1]
+  "moe_layers": "all"
 }

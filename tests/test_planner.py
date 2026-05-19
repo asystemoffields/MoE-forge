@@ -66,6 +66,25 @@ def test_layout_uses_per_layer_intermediate_sizes() -> None:
     assert layers[1]["active_channels_per_token"] > layers[0]["active_channels_per_token"]
 
 
+def test_plan_accepts_all_layer_selection() -> None:
+    info = ModelInfo(
+        path=Path("model"),
+        source_format="hf",
+        architecture="LlamaForCausalLM",
+        layer_count=4,
+        hidden_size=8,
+        intermediate_size=16,
+        dense=True,
+        adapter_family="llama",
+        adapter={"supported_backends": ["carved_mlp"]},
+    )
+
+    recipe = plan_conversion(info, PlanOptions(goal="balanced", moe_layers="all"))
+
+    assert recipe.moe_layers == [0, 1, 2, 3]
+    assert [layer["layer"] for layer in recipe.layout["layers"]] == [0, 1, 2, 3]
+
+
 def test_strategy_falls_back_to_supported_backend() -> None:
     info = ModelInfo(
         path=Path("gemma"),

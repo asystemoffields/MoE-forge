@@ -49,6 +49,11 @@ def build_layer_layouts(
 
 
 def _parse_layer_spec(value: str, layer_count: int | None = None) -> list[int]:
+    normalized = value.strip().lower()
+    if normalized in {"all", "*", "full"}:
+        if layer_count is None:
+            raise ValueError("layer count is required for all-layer selection")
+        return list(range(layer_count))
     if ":" in value:
         start_raw, end_raw = value.split(":", 1)
         start = int(start_raw) if start_raw else 0
