@@ -8,7 +8,12 @@ import pytest
 from moeforge.carve import build_carve_manifest
 from moeforge.materialize import materialize_carve_manifest
 from moeforge.recovery import write_recovery_plan
-from moeforge.recovery_runner import export_recovered_wrapper, run_recovery, validate_recovered_wrapper
+from moeforge.recovery_runner import (
+    _training_samples,
+    export_recovered_wrapper,
+    run_recovery,
+    validate_recovered_wrapper,
+)
 from moeforge.wrapper import export_wrapper_package
 
 torch = pytest.importorskip("torch")
@@ -79,6 +84,34 @@ def test_run_recovery_trains_tiny_wrapper_and_writes_checkpoints(tmp_path: Path)
     assert (recovered_dir / "recovered-wrapper-validation.json").exists()
 
 
+def test_training_samples_tokenizes_text_file_manifest(tmp_path: Path) -> None:
+    text_file = tmp_path / "train.txt"
+    text_file.write_text("alpha beta\n\ngamma alpha", encoding="utf-8")
+    config_path = tmp_path / "recovery.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "teacher_model": "tiny-teacher",
+                "wrapper": "wrapper",
+                "train": {"text_file": str(text_file), "sequence_length": 3},
+            }
+        ),
+        encoding="utf-8",
+    )
+    plan = write_recovery_plan(config_path=config_path)
+
+    input_ids, source = _training_samples(
+        plan,
+        model_ref="tiny-teacher",
+        tokenizer_cls=_FakeTokenizer,
+    )
+
+    assert input_ids == [[11, 12], [13, 11]]
+    assert source["kind"] == "text"
+    assert source["token_counts"] == [2, 2]
+    assert source["source"]["text_file"]["resolved_path"] == str(text_file)
+
+
 def _write_wrapper_package(tmp_path: Path, model: Path) -> Path:
     manifest_path = _write_manifest(tmp_path, model)
     artifact_dir = tmp_path / "artifact"
@@ -139,3 +172,24 @@ def _write_tiny_llama_checkpoint(path: Path) -> Path:
     model = transformers.LlamaForCausalLM(config)
     model.save_pretrained(path, safe_serialization=True)
     return path
+
+
+class _FakeTokenizer:
+    vocab = {"alpha": 11, "beta": 12, "gamma": 13}
+
+    @classmethod
+    def from_pretrained(cls, model_ref: str) -> "_FakeTokenizer":
+        assert model_ref == "tiny-teacher"
+        return cls()
+
+    def __call__(
+        self,
+        text: str,
+        *,
+        truncation: bool,
+        max_length: int,
+        return_attention_mask: bool,
+    ) -> dict[str, list[int]]:
+        del truncation, return_attention_mask
+        ids = [self.vocab[token] for token in text.split()]
+        return {"input_ids": ids[:max_length]}

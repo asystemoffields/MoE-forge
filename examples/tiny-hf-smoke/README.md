@@ -1,6 +1,6 @@
 # Tiny HF Smoke Recipe
 
-This recipe creates a tiny local Llama-style checkpoint and runs the carved-MoE path end to end. The eval and recovery samples come from `token-ids.json`, so the generated reports record dataset file identity instead of only inline samples.
+This recipe creates a tiny local Llama-style checkpoint with a toy tokenizer and runs the carved-MoE path end to end. The default eval and recovery samples come from `token-ids.json`, so the generated reports record dataset file identity instead of only inline samples.
 
 Run these commands from this directory after installing the HF extras:
 
@@ -34,8 +34,9 @@ For a longer local run, use `recovery-experiment-longer.json`. It keeps the same
 moe-forge recovery-experiment --config recovery-experiment-longer.json
 ```
 
-For a tokenizer-backed HF checkpoint, `eval-batch-text.json` shows the same eval batch shape with `sample-prompts.txt` as a text-file dataset:
+The generated checkpoint can also run tokenizer-backed text-file eval and recovery from `sample-prompts.txt`:
 
 ```powershell
 moe-forge eval-batch --config eval-batch-text.json
+moe-forge recovery-experiment --config recovery-experiment-text.json --max-steps 2
 ```

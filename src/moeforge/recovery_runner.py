@@ -23,7 +23,7 @@ def run_recovery(
     try:
         import torch
         import torch.nn.functional as F
-        from transformers import AutoModelForCausalLM
+        from transformers import AutoModelForCausalLM, AutoTokenizer
     except ImportError as exc:  # pragma: no cover - optional dependency boundary
         raise RecoveryRunError("recovery-run requires torch and transformers") from exc
 
@@ -40,7 +40,11 @@ def run_recovery(
     warnings = list(plan.get("warnings") if isinstance(plan.get("warnings"), list) else [])
 
     device = _resolve_device(str(teacher_config.get("device", "auto")), torch=torch)
-    train_samples = _input_id_samples(plan)
+    train_samples, train_sample_source = _training_samples(
+        plan,
+        model_ref=str(teacher_config["model"]),
+        tokenizer_cls=AutoTokenizer,
+    )
     steps = int(max_steps or schedule.get("steps", 1))
     batch_size = max(1, int(schedule.get("batch_size", 1)))
     save_every = max(1, int(schedule.get("save_every_steps", steps)))
@@ -114,6 +118,7 @@ def run_recovery(
         "loss_config": loss_config,
         "optimizer": optimizer_config,
         "replacement_report": replacement_report.to_dict(),
+        "train_sample_source": train_sample_source,
         "trainable_parameter_count": _parameter_count(trainable_parameters),
         "promoted_carved_parameters": promoted,
         "checkpoints": checkpoint_records,
@@ -309,6 +314,7 @@ def _loss_parts(
         F.softmax(teacher_flat / temperature, dim=-1),
         reduction="batchmean",
     ) * (temperature * temperature)
+    teacher_kl = teacher_kl.clamp_min(0.0)
     logits_mse = F.mse_loss(student_flat, teacher_flat)
     z_loss = torch.logsumexp(student_flat, dim=-1).pow(2).mean()
     total = (
@@ -324,10 +330,17 @@ def _loss_parts(
     }
 
 
-def _input_id_samples(plan: dict[str, Any]) -> list[list[int]]:
+def _training_samples(
+    plan: dict[str, Any],
+    *,
+    model_ref: str,
+    tokenizer_cls: Any,
+) -> tuple[list[list[int]], dict[str, Any]]:
     train = _dict(_dict(plan.get("samples")).get("train"))
+    if train.get("kind") == "text":
+        return _text_training_samples(train, model_ref=model_ref, tokenizer_cls=tokenizer_cls)
     if train.get("kind") != "input_ids":
-        raise RecoveryRunError("recovery-run currently requires train samples with kind=input_ids")
+        raise RecoveryRunError("recovery-run requires train samples with kind=input_ids or kind=text")
     samples = train.get("samples")
     if not isinstance(samples, list) or not samples:
         raise RecoveryRunError("recovery-run requires at least one train input-id sample")
@@ -336,7 +349,72 @@ def _input_id_samples(plan: dict[str, Any]) -> list[list[int]]:
         if not isinstance(sample, dict) or not isinstance(sample.get("input_ids"), list):
             raise RecoveryRunError("train input-id samples must include input_ids")
         input_ids.append([int(item) for item in sample["input_ids"]])
-    return input_ids
+    return input_ids, {
+        "kind": "input_ids",
+        "sample_count": len(input_ids),
+        "sequence_length": train.get("sequence_length"),
+        "source": train.get("source"),
+    }
+
+
+def _text_training_samples(
+    train: dict[str, Any],
+    *,
+    model_ref: str,
+    tokenizer_cls: Any,
+) -> tuple[list[list[int]], dict[str, Any]]:
+    texts = _text_values_from_manifest(train)
+    if not texts:
+        raise RecoveryRunError("recovery-run requires at least one train text sample")
+    try:
+        tokenizer = tokenizer_cls.from_pretrained(model_ref)
+    except Exception as exc:  # pragma: no cover - depends on optional tokenizer assets
+        raise RecoveryRunError("text recovery requires a loadable tokenizer") from exc
+    sequence_length = max(1, int(train.get("sequence_length") or 128))
+    input_ids = []
+    token_counts = []
+    for text in texts:
+        encoded = tokenizer(
+            text,
+            truncation=True,
+            max_length=sequence_length,
+            return_attention_mask=False,
+        )
+        sample_ids = _encoded_input_ids(encoded)
+        if not sample_ids:
+            raise RecoveryRunError("text recovery tokenizer produced an empty input-id sample")
+        input_ids.append(sample_ids)
+        token_counts.append(len(sample_ids))
+    return input_ids, {
+        "kind": "text",
+        "sample_count": len(input_ids),
+        "sequence_length": sequence_length,
+        "source": train.get("source"),
+        "token_counts": token_counts,
+    }
+
+
+def _text_values_from_manifest(train: dict[str, Any]) -> list[str]:
+    source = _dict(train.get("source"))
+    text_file = _dict(source.get("text_file"))
+    path_value = text_file.get("resolved_path") or text_file.get("path")
+    if not path_value:
+        raise RecoveryRunError("text recovery currently requires train.source.text_file provenance")
+    path = Path(str(path_value))
+    content = path.read_text(encoding="utf-8")
+    return [chunk.strip() for chunk in content.split("\n\n") if chunk.strip()]
+
+
+def _encoded_input_ids(encoded: Any) -> list[int]:
+    raw = encoded["input_ids"] if isinstance(encoded, dict) else encoded.input_ids
+    if hasattr(raw, "detach"):
+        raw = raw.detach().cpu().tolist()
+    if raw and isinstance(raw[0], list):
+        raw = raw[0]
+    try:
+        return [int(item) for item in raw]
+    except (TypeError, ValueError) as exc:
+        raise RecoveryRunError("tokenizer input_ids must be integer token ids") from exc
 
 
 def _batch(
