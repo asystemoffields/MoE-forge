@@ -20,7 +20,7 @@ from .reports import (
     write_eval_html_report_payload,
 )
 from .recovery import write_recovery_plan
-from .recovery_runner import run_recovery
+from .recovery_runner import export_recovered_wrapper, run_recovery
 from .recipe import recipe_to_dict
 from .router import build_router_plan
 from .runtime import verify_carved_artifact
@@ -62,6 +62,8 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_recovery_plan(args)
         if args.command == "recovery-run":
             return _cmd_recovery_run(args)
+        if args.command == "recovery-export":
+            return _cmd_recovery_export(args)
     except Exception as exc:  # pragma: no cover - CLI boundary
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -245,6 +247,34 @@ def build_parser() -> argparse.ArgumentParser:
     recovery_run_parser.add_argument("--output", type=Path, help="Recovery run report output path.")
     recovery_run_parser.add_argument("--max-steps", type=int, help="Override planned step count for smoke runs.")
     recovery_run_parser.add_argument("--print", action="store_true", help="Also print the recovery run report JSON.")
+
+    recovery_export_parser = subparsers.add_parser(
+        "recovery-export",
+        help="Apply a recovery checkpoint to a wrapper artifact.",
+    )
+    recovery_export_parser.add_argument(
+        "--checkpoint",
+        type=Path,
+        required=True,
+        help="Recovery checkpoint metadata JSON.",
+    )
+    recovery_export_parser.add_argument("--wrapper", type=Path, required=True, help="Source wrapper package directory.")
+    recovery_export_parser.add_argument(
+        "--output-dir",
+        type=Path,
+        required=True,
+        help="Recovered wrapper output directory.",
+    )
+    recovery_export_parser.add_argument(
+        "--artifact-name",
+        default="recovered-carved-experts.safetensors",
+        help="Recovered artifact filename.",
+    )
+    recovery_export_parser.add_argument(
+        "--print",
+        action="store_true",
+        help="Also print the recovery export report JSON.",
+    )
 
     return parser
 
@@ -484,6 +514,20 @@ def _cmd_recovery_run(args: argparse.Namespace) -> int:
     else:
         output = args.output or Path(str(report["output_dir"])) / "recovery-run-report.json"
         print(f"wrote {output}")
+    return 0
+
+
+def _cmd_recovery_export(args: argparse.Namespace) -> int:
+    report = export_recovered_wrapper(
+        checkpoint_path=args.checkpoint,
+        wrapper_dir=args.wrapper,
+        output_dir=args.output_dir,
+        artifact_name=args.artifact_name,
+    )
+    if args.print:
+        print(json.dumps(report, indent=2, sort_keys=True))
+    else:
+        print(f"wrote {report['output_dir']}")
     return 0
 
 

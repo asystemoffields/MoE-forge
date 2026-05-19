@@ -36,6 +36,7 @@ moe-forge eval-compare eval-all.json eval-router.json --output eval-compare.json
 moe-forge eval-batch --config eval-batch.json --output-dir eval-runs
 moe-forge recovery-plan --config recovery.json --output recovery-plan.json
 moe-forge recovery-run --plan recovery-plan.json --output recovery-run-report.json
+moe-forge recovery-export --checkpoint checkpoints/checkpoint-step-100.json --wrapper wrapper --output-dir recovered-wrapper
 ```
 
 Supported inputs:
@@ -91,6 +92,7 @@ Current evaluation support includes:
 - config-driven eval batches that run multiple expert modes, emit per-mode reports, compare completed runs, and preserve recovery-eval settings
 - teacher-KL recovery plan artifacts with loss, optimizer, sample, checkpoint, and before/after eval-batch comparison records
 - a tiny recovery runner that consumes recovery plans, computes teacher-KL/logits losses on input-id batches, promotes carved tensors for training, and writes checkpoint metadata
+- recovery checkpoint export that applies trainable tensor state back into a recovered wrapper package
 
 Example eval batch config:
 

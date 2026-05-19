@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import shutil
 from typing import Any
 
 from .hf_runtime import MoEForgeCarvedMLPModule, replace_hf_mlp_modules
 from .recovery import compare_eval_batch_manifests
+from .wrapper import load_wrapper_config
 
 
 class RecoveryRunError(RuntimeError):
@@ -119,6 +121,81 @@ def run_recovery(
         "warnings": warnings,
     }
     _write_json(target, report)
+    return report
+
+
+def export_recovered_wrapper(
+    *,
+    checkpoint_path: Path,
+    wrapper_dir: Path,
+    output_dir: Path,
+    artifact_name: str = "recovered-carved-experts.safetensors",
+) -> dict[str, Any]:
+    try:
+        import torch
+        from safetensors.torch import load_file, save_file
+    except ImportError as exc:  # pragma: no cover - optional dependency boundary
+        raise RecoveryRunError("recovery-export requires torch and safetensors") from exc
+
+    checkpoint = _load_checkpoint_metadata(checkpoint_path)
+    wrapper_config = load_wrapper_config(wrapper_dir / "moeforge_config.json")
+    source_artifact = _resolve_package_path(wrapper_dir, wrapper_config.artifact_path)
+    state_path = Path(str(checkpoint["state_path"]))
+    if not state_path.is_absolute():
+        state_path = checkpoint_path.parent / state_path
+    state = torch.load(str(state_path), map_location="cpu")
+    trainable_state = state.get("trainable_state")
+    if not isinstance(trainable_state, dict):
+        raise RecoveryRunError("recovery checkpoint state must include trainable_state")
+
+    tensors = dict(load_file(str(source_artifact), device="cpu"))
+    tensor_map = _promoted_tensor_map(checkpoint)
+    updated = []
+    for parameter_name, value in trainable_state.items():
+        tensor_name = _tensor_name_for_parameter(str(parameter_name), tensor_map)
+        if tensor_name is None:
+            continue
+        if tensor_name not in tensors:
+            raise RecoveryRunError(f"checkpoint tensor is not present in wrapper artifact: {tensor_name}")
+        tensors[tensor_name] = value.detach().cpu().contiguous()
+        updated.append(
+            {
+                "parameter": str(parameter_name),
+                "tensor": tensor_name,
+                "shape": list(value.shape),
+            }
+        )
+    if not updated:
+        raise RecoveryRunError("recovery checkpoint did not contain carved tensor parameters to export")
+
+    _copy_wrapper_scaffold(source_dir=wrapper_dir, output_dir=output_dir, skip_files={source_artifact.name})
+    artifact_path = output_dir / artifact_name
+    save_file(
+        tensors,
+        str(artifact_path),
+        metadata={
+            "moe_forge": "recovered_carved_experts",
+            "source_artifact": str(source_artifact),
+            "checkpoint": str(checkpoint_path),
+        },
+    )
+    _rewrite_wrapper_artifact_refs(
+        output_dir=output_dir,
+        artifact_name=artifact_name,
+        checkpoint_path=checkpoint_path,
+    )
+    report = {
+        "format": "moeforge_recovery_export",
+        "checkpoint_path": str(checkpoint_path),
+        "state_path": str(state_path),
+        "source_wrapper": str(wrapper_dir),
+        "output_dir": str(output_dir),
+        "artifact_path": str(artifact_path),
+        "updated_tensor_count": len(updated),
+        "updated_tensors": updated,
+        "wrapper_config": str(output_dir / "moeforge_config.json"),
+    }
+    _write_json(output_dir / "recovery-export-report.json", report)
     return report
 
 
@@ -279,9 +356,71 @@ def _write_checkpoint(
         "trainable_parameter_count": _parameter_count(trainable_parameters),
         "saved_tensor_count": len(trainable_state),
         "promoted_carved_parameter_count": len(promoted),
+        "promoted_carved_parameters": promoted,
     }
     _write_json(metadata_path, metadata)
     return metadata
+
+
+def _load_checkpoint_metadata(path: Path) -> dict[str, Any]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise RecoveryRunError("recovery checkpoint metadata must be a JSON object")
+    if payload.get("format") != "moeforge_recovery_checkpoint":
+        raise RecoveryRunError("recovery-export requires moeforge_recovery_checkpoint metadata")
+    if not payload.get("state_path"):
+        raise RecoveryRunError("recovery checkpoint metadata is missing state_path")
+    return payload
+
+
+def _promoted_tensor_map(checkpoint: dict[str, Any]) -> dict[str, str]:
+    promoted = checkpoint.get("promoted_carved_parameters")
+    if not isinstance(promoted, list):
+        raise RecoveryRunError("recovery checkpoint metadata is missing promoted_carved_parameters")
+    tensor_map = {}
+    for item in promoted:
+        if isinstance(item, dict) and item.get("parameter") and item.get("tensor"):
+            tensor_map[str(item["parameter"])] = str(item["tensor"])
+    return tensor_map
+
+
+def _tensor_name_for_parameter(parameter_name: str, tensor_map: dict[str, str]) -> str | None:
+    for parameter, tensor in tensor_map.items():
+        if parameter_name == parameter or parameter_name.endswith(f".{parameter}"):
+            return tensor
+    return None
+
+
+def _copy_wrapper_scaffold(*, source_dir: Path, output_dir: Path, skip_files: set[str]) -> None:
+    if source_dir.resolve() == output_dir.resolve():
+        raise RecoveryRunError("recovery-export output_dir must differ from source wrapper")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    for item in source_dir.iterdir():
+        if item.name in skip_files:
+            continue
+        destination = output_dir / item.name
+        if item.is_dir():
+            if destination.exists():
+                shutil.rmtree(destination)
+            shutil.copytree(item, destination)
+        else:
+            shutil.copy2(item, destination)
+
+
+def _rewrite_wrapper_artifact_refs(*, output_dir: Path, artifact_name: str, checkpoint_path: Path) -> None:
+    config_path = output_dir / "moeforge_config.json"
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    config["artifact_path"] = artifact_name
+    config.setdefault("warnings", [])
+    if isinstance(config["warnings"], list):
+        config["warnings"].append(f"recovered tensors applied from {checkpoint_path}")
+    _write_json(config_path, config)
+
+    hf_config_path = output_dir / "config.json"
+    if hf_config_path.exists():
+        hf_config = json.loads(hf_config_path.read_text(encoding="utf-8"))
+        hf_config["artifact_path"] = artifact_name
+        _write_json(hf_config_path, hf_config)
 
 
 def _before_after_from_plan(plan: dict[str, Any]) -> dict[str, Any]:
@@ -298,6 +437,13 @@ def _resolve_device(device: str, *, torch: Any) -> Any:
     if device == "auto":
         return torch.device("cuda" if torch.cuda.is_available() else "cpu")
     return torch.device(device)
+
+
+def _resolve_package_path(package_dir: Path, value: str) -> Path:
+    path = Path(value)
+    if path.is_absolute():
+        return path
+    return package_dir / path
 
 
 def _parameter_count(parameters: list[Any]) -> int:

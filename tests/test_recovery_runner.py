@@ -8,7 +8,7 @@ import pytest
 from moeforge.carve import build_carve_manifest
 from moeforge.materialize import materialize_carve_manifest
 from moeforge.recovery import write_recovery_plan
-from moeforge.recovery_runner import run_recovery
+from moeforge.recovery_runner import export_recovered_wrapper, run_recovery
 from moeforge.wrapper import export_wrapper_package
 
 torch = pytest.importorskip("torch")
@@ -52,6 +52,18 @@ def test_run_recovery_trains_tiny_wrapper_and_writes_checkpoints(tmp_path: Path)
     assert Path(report["checkpoints"][0]["state_path"]).exists()
     assert report["losses"][0]["teacher_kl"] >= 0.0
     assert saved_report["replacement_report"]["replaced"][0]["module_path"] == "model.layers.0.mlp"
+
+    recovered_dir = tmp_path / "recovered-wrapper"
+    export_report = export_recovered_wrapper(
+        checkpoint_path=recovery_dir / "checkpoints" / "checkpoint-step-2.json",
+        wrapper_dir=package_dir,
+        output_dir=recovered_dir,
+    )
+    recovered_config = json.loads((recovered_dir / "moeforge_config.json").read_text(encoding="utf-8"))
+    assert export_report["updated_tensor_count"] > 0
+    assert recovered_config["artifact_path"] == "recovered-carved-experts.safetensors"
+    assert (recovered_dir / "recovered-carved-experts.safetensors").exists()
+    assert (recovered_dir / "recovery-export-report.json").exists()
 
 
 def _write_wrapper_package(tmp_path: Path, model: Path) -> Path:
