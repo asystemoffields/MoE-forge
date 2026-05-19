@@ -39,4 +39,11 @@ The generated checkpoint can also run tokenizer-backed text-file eval and recove
 ```powershell
 moe-forge eval-batch --config eval-batch-text.json
 moe-forge recovery-experiment --config recovery-experiment-text.json --max-steps 2
+moe-forge recovery-compare recovery-experiment/recovery-experiment-report.json recovery-experiment-text/recovery-experiment-report.json --output recovery-compare.json --html-output recovery-compare.html
+```
+
+For a longer text-file recovery run:
+
+```powershell
+moe-forge recovery-experiment --config recovery-experiment-text-longer.json
 ```

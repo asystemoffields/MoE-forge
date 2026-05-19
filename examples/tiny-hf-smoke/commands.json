@@ -12,7 +12,8 @@
     "moe-forge recovery-validate --source-wrapper wrapper --recovered-wrapper recovery-experiment/recovered-wrapper --checkpoint recovery-experiment/recovery/checkpoints/checkpoint-step-2.json --output recovery-experiment/recovered-wrapper-validation-cli.json",
     "moe-forge smoke-assert --run-dir . --output smoke-assertions.json",
     "moe-forge eval-batch --config eval-batch-text.json",
-    "moe-forge recovery-experiment --config recovery-experiment-text.json --max-steps 2"
+    "moe-forge recovery-experiment --config recovery-experiment-text.json --max-steps 2",
+    "moe-forge recovery-compare recovery-experiment/recovery-experiment-report.json recovery-experiment-text/recovery-experiment-report.json --output recovery-compare.json --html-output recovery-compare.html"
   ],
   "configs": [
     "recipe.json",
@@ -21,7 +22,8 @@
     "recovery-experiment.json",
     "recovery-experiment-longer.json",
     "eval-batch-text.json",
-    "recovery-experiment-text.json"
+    "recovery-experiment-text.json",
+    "recovery-experiment-text-longer.json"
   ],
   "datasets": [
     "token-ids.json",

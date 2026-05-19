@@ -14,6 +14,7 @@ from .inspectors import inspect_model
 from .materialize import materialize_carve_manifest
 from .planner import PlanOptions, plan_conversion
 from .profiling import ProfileOptions, load_calibration_texts, profile_hf_model
+from .recovery_compare import write_recovery_comparison_report
 from .reports import (
     write_eval_comparison_report,
     write_eval_html_report,
@@ -70,6 +71,8 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_recovery_validate(args)
         if args.command == "recovery-experiment":
             return _cmd_recovery_experiment(args)
+        if args.command == "recovery-compare":
+            return _cmd_recovery_compare(args)
         if args.command == "smoke-assert":
             return _cmd_smoke_assert(args)
     except Exception as exc:  # pragma: no cover - CLI boundary
@@ -321,6 +324,20 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Also print the experiment report JSON.",
     )
+
+    recovery_compare_parser = subparsers.add_parser(
+        "recovery-compare",
+        help="Compare multiple recovery-experiment JSON reports side by side.",
+    )
+    recovery_compare_parser.add_argument(
+        "reports",
+        type=Path,
+        nargs="+",
+        help="Recovery experiment JSON reports.",
+    )
+    recovery_compare_parser.add_argument("--output", type=Path, required=True, help="Comparison JSON output path.")
+    recovery_compare_parser.add_argument("--html-output", type=Path, help="Optional self-contained HTML output path.")
+    recovery_compare_parser.add_argument("--print", action="store_true", help="Also print the comparison JSON.")
 
     smoke_parser = subparsers.add_parser(
         "smoke-assert",
@@ -614,6 +631,19 @@ def _cmd_recovery_experiment(args: argparse.Namespace) -> int:
         print(json.dumps(report, indent=2, sort_keys=True))
     else:
         print(f"wrote {report['artifacts']['json_report']}")
+    return 0
+
+
+def _cmd_recovery_compare(args: argparse.Namespace) -> int:
+    comparison = write_recovery_comparison_report(
+        report_paths=args.reports,
+        output_path=args.output,
+        html_output_path=args.html_output,
+    )
+    if args.print:
+        print(json.dumps(comparison, indent=2, sort_keys=True))
+    else:
+        print(f"wrote {args.output}")
     return 0
 
 
