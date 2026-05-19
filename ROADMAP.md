@@ -69,3 +69,4 @@ Keep the dense model as a shared trunk and route LoRA or adapter experts. This p
 - Can a router initialized analytically recover enough quality with short training?
 - Which layers benefit from MoE conversion on small dense models?
 - How much active compute can be removed before instruction behavior degrades?
+- Can document-aware expert pools, inspired by Ai2 EMO, produce more reusable expert subsets than global channel-importance carving?

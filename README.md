@@ -112,3 +112,5 @@ Every run should be reproducible, inspectable, and measurable.
 5. Recovery training against the dense teacher
 6. Evaluation reports for perplexity, KL, active compute, and speed
 7. GGUF export once runtime layout support is available
+
+See [RESEARCH_NOTES.md](RESEARCH_NOTES.md) for research threads guiding router and modularity design.
