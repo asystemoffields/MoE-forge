@@ -23,6 +23,12 @@ moe-forge eval-batch --config eval-batch-text.json
 moe-forge recovery-experiment --config recovery-experiment-text-3step.json
 ```
 
+Check the wrapper through native Transformers loading:
+
+```powershell
+python -c "import moeforge; from transformers import AutoModelForCausalLM; m=AutoModelForCausalLM.from_pretrained('wrapper'); print(type(m).__name__, [r.layer for r in m.replacement_report.replaced])"
+```
+
 Expected lab-notebook artifacts:
 
 - `carve-verify-report.json`

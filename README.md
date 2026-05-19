@@ -81,6 +81,7 @@ Current wrapper support includes:
 
 - `config.json` export for `MoEForgeConfig.from_package(...)`
 - `moeforge_config.json` package export for carved FFN artifacts
+- native `AutoModelForCausalLM.from_pretrained(...)` loading for installed MoE Forge packages
 - optional router-plan packaging
 - reloadable carved layer runtime from wrapper config
 - PyTorch module loading for carved FFN layer parity and selected expert subsets
@@ -119,6 +120,17 @@ Example eval batch config:
     "metrics": ["logits_parity", "teacher_kl"]
   }
 }
+```
+
+Example native HF load:
+
+```python
+import moeforge
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+model = AutoModelForCausalLM.from_pretrained("wrapper")
+tokenizer = AutoTokenizer.from_pretrained(model.config.source_model)
+outputs = model(**tokenizer("Dense to MoE", return_tensors="pt"))
 ```
 
 Example recovery plan config:

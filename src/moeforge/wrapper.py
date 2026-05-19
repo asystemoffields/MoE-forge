@@ -201,6 +201,15 @@ def _write_wrapper_readme(output_dir: Path, config: WrapperConfig) -> None:
             f"Expert count: `{config.expert_count}`",
             f"Layers: `{', '.join(str(item.layer) for item in config.layers)}`",
             "",
+            "Load as a Transformers causal LM:",
+            "",
+            "```python",
+            "import moeforge",
+            "from transformers import AutoModelForCausalLM",
+            "",
+            "model = AutoModelForCausalLM.from_pretrained(\".\")",
+            "```",
+            "",
         ]
     )
     (output_dir / "README.md").write_text("\n".join(lines) + "\n", encoding="utf-8")

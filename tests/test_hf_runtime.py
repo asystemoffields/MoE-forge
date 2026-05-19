@@ -9,6 +9,7 @@ from moeforge.carve import build_carve_manifest
 from moeforge.hf_runtime import (
     MoEForgeCarvedMLPModule,
     MoEForgeConfig,
+    MoEForgeForCausalLM,
     MoEForgeHFError,
     replace_hf_mlp_modules,
 )
@@ -25,7 +26,7 @@ def test_hf_config_loads_from_wrapper_package(tmp_path: Path) -> None:
     payload = json.loads((package_dir / "config.json").read_text(encoding="utf-8"))
 
     assert payload["model_type"] == "moeforge_carved_moe"
-    assert payload["architectures"] == ["MoEForgeCarvedMLPModule"]
+    assert payload["architectures"] == ["MoEForgeForCausalLM"]
     assert payload["moeforge_wrapper_config"] == "moeforge_config.json"
 
     config = MoEForgeConfig.from_package(package_dir)
@@ -117,6 +118,33 @@ def test_replace_hf_mlp_modules_preserves_tiny_llama_outputs(tmp_path: Path) -> 
     assert report.replaced[0].module_path == "model.layers.0.mlp"
     assert report.replaced[0].original_class == "LlamaMLP"
     assert torch.allclose(patched_logits, dense_logits, atol=1e-5)
+
+
+def test_auto_model_loads_wrapper_package_as_causal_lm(tmp_path: Path) -> None:
+    transformers = pytest.importorskip("transformers")
+    model_dir = _write_tiny_llama_checkpoint(tmp_path / "tiny-llama", transformers=transformers)
+    package_dir = _write_wrapper_package_from_checkpoint(
+        tmp_path,
+        model_dir,
+        layers=[0, 1],
+        intermediate_size=16,
+        shared_channels=4,
+        expert_channels=[4, 4, 4],
+    )
+    dense = transformers.AutoModelForCausalLM.from_pretrained(model_dir)
+    moe = transformers.AutoModelForCausalLM.from_pretrained(package_dir)
+    dense.eval()
+    moe.eval()
+
+    with torch.no_grad():
+        input_ids = torch.tensor([[1, 2, 3, 4], [4, 3, 2, 1]], dtype=torch.long)
+        dense_logits = dense(input_ids=input_ids).logits
+        moe_logits = moe(input_ids=input_ids).logits
+
+    assert isinstance(moe, MoEForgeForCausalLM)
+    assert moe.config.model_type == "moeforge_carved_moe"
+    assert [item.layer for item in moe.replacement_report.replaced] == [0, 1]
+    assert torch.allclose(moe_logits, dense_logits, atol=1e-5)
 
 
 def _write_wrapper_package(tmp_path: Path, *, layers: list[int] | None = None) -> Path:

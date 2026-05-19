@@ -10,8 +10,16 @@ from .router import select_expert_pool
 from .wrapper import WrapperConfig, load_wrapper_config
 
 try:  # pragma: no cover - exercised through tests when transformers is installed
+    from transformers import AutoConfig as _AutoConfig
+    from transformers import AutoModelForCausalLM as _AutoModelForCausalLM
+    from transformers import PreTrainedModel as _PreTrainedModel
     from transformers import PretrainedConfig as _PretrainedConfig
+    from transformers.generation import GenerationMixin as _GenerationMixin
 except ImportError:  # pragma: no cover - optional dependency boundary
+    _AutoConfig = None
+    _AutoModelForCausalLM = None
+    _GenerationMixin = object
+    _PreTrainedModel = object
     _PretrainedConfig = object
 
 try:  # pragma: no cover - exercised through tests when torch is installed
@@ -20,6 +28,12 @@ except ImportError:  # pragma: no cover - optional dependency boundary
     torch = None
 
 _TorchModule = torch.nn.Module if torch is not None else object
+_HFModelBase = _PreTrainedModel if _PreTrainedModel is not object else _TorchModule
+if _PreTrainedModel is not object and _GenerationMixin is not object and not issubclass(_PreTrainedModel, _GenerationMixin):
+    class _MoEForgeModelBase(_PreTrainedModel, _GenerationMixin):  # type: ignore[misc]
+        pass
+else:
+    _MoEForgeModelBase = _HFModelBase
 
 
 class MoEForgeHFError(RuntimeError):
@@ -289,12 +303,98 @@ class MoEForgeCarvedMLPModule(_TorchModule):
         raise MoEForgeHFError(f"unsupported activation {self.activation}")
 
 
+class MoEForgeForCausalLM(_MoEForgeModelBase):
+    config_class = MoEForgeConfig
+    base_model_prefix = "dense_model"
+
+    def __init__(
+        self,
+        config: MoEForgeConfig,
+        *,
+        dense_model: Any,
+        package_dir: str | Path,
+        replacement_report: HFReplacementReport,
+    ) -> None:
+        if _PreTrainedModel is not object:
+            super().__init__(config)
+        else:  # pragma: no cover - only used without transformers installed
+            super().__init__()
+            self.config = config
+        self.dense_model = dense_model
+        self.package_dir = Path(package_dir)
+        self.replacement_report = replacement_report
+
+    @classmethod
+    def from_pretrained(
+        cls,
+        pretrained_model_name_or_path: str | Path,
+        *model_args: Any,
+        config: MoEForgeConfig | None = None,
+        **kwargs: Any,
+    ) -> "MoEForgeForCausalLM":
+        if _AutoModelForCausalLM is None:
+            raise MoEForgeHFError("MoEForgeForCausalLM.from_pretrained requires transformers")
+
+        package = Path(pretrained_model_name_or_path)
+        resolved_config = config or MoEForgeConfig.from_package(package)
+        default_experts = kwargs.pop("moeforge_default_experts", None)
+        source_model = _resolve_source_model_ref(package, resolved_config.source_model)
+        source_kwargs = _source_model_kwargs(kwargs)
+        dense_model = _AutoModelForCausalLM.from_pretrained(source_model, *model_args, **source_kwargs)
+        replacement_report = replace_hf_mlp_modules(
+            dense_model,
+            package,
+            config=resolved_config,
+            default_experts=default_experts,
+        )
+        return cls(
+            resolved_config,
+            dense_model=dense_model,
+            package_dir=package,
+            replacement_report=replacement_report,
+        )
+
+    def forward(self, *args: Any, **kwargs: Any) -> Any:
+        return self.dense_model(*args, **kwargs)
+
+    def generate(self, *args: Any, **kwargs: Any) -> Any:
+        return self.dense_model.generate(*args, **kwargs)
+
+    def prepare_inputs_for_generation(self, *args: Any, **kwargs: Any) -> Any:
+        if not hasattr(self.dense_model, "prepare_inputs_for_generation"):
+            raise MoEForgeHFError("base model does not implement prepare_inputs_for_generation")
+        return self.dense_model.prepare_inputs_for_generation(*args, **kwargs)
+
+    def get_input_embeddings(self) -> Any:
+        return self.dense_model.get_input_embeddings()
+
+    def set_input_embeddings(self, value: Any) -> None:
+        self.dense_model.set_input_embeddings(value)
+
+    def get_output_embeddings(self) -> Any:
+        return self.dense_model.get_output_embeddings()
+
+    def set_output_embeddings(self, value: Any) -> None:
+        self.dense_model.set_output_embeddings(value)
+
+    def resize_token_embeddings(self, *args: Any, **kwargs: Any) -> Any:
+        return self.dense_model.resize_token_embeddings(*args, **kwargs)
+
+
+def register_transformers_auto_classes(*, exist_ok: bool = True) -> bool:
+    if _AutoConfig is None or _AutoModelForCausalLM is None:
+        return False
+    _AutoConfig.register(MoEForgeConfig.model_type, MoEForgeConfig, exist_ok=exist_ok)
+    _AutoModelForCausalLM.register(MoEForgeConfig, MoEForgeForCausalLM, exist_ok=exist_ok)
+    return True
+
+
 def hf_config_payload_from_wrapper(wrapper_config: WrapperConfig) -> dict[str, Any]:
     config = MoEForgeConfig.from_wrapper_config(wrapper_config)
     return {
         "activation": config.activation,
         "adapter_family": config.adapter_family,
-        "architectures": ["MoEForgeCarvedMLPModule"],
+        "architectures": ["MoEForgeForCausalLM"],
         "artifact_path": config.artifact_path,
         "expert_count": config.expert_count,
         "layers": config.layers,
@@ -409,6 +509,28 @@ def _default_experts_for_layer(
         selected = default_experts.get(layer)
         return [int(expert) for expert in selected] if selected is not None else None
     return [int(expert) for expert in default_experts]
+
+
+def _resolve_source_model_ref(package_dir: Path, source_model: str) -> str:
+    if not source_model:
+        raise MoEForgeHFError("wrapper config is missing source_model")
+    source_path = Path(source_model)
+    if source_path.is_absolute() or source_path.exists():
+        return str(source_path)
+    package_relative = package_dir / source_path
+    if package_relative.exists():
+        return str(package_relative)
+    return source_model
+
+
+def _source_model_kwargs(kwargs: dict[str, Any]) -> dict[str, Any]:
+    ignored = {
+        "_from_auto",
+        "adapter_kwargs",
+        "config",
+        "subfolder",
+    }
+    return {key: value for key, value in kwargs.items() if key not in ignored}
 
 
 def _has_router_request(
