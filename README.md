@@ -33,6 +33,7 @@ moe-forge wrapper-export --manifest carve-manifest.json --artifact carved-artifa
 moe-forge eval-hf <model-path> --wrapper wrapper --output eval-report.json
 moe-forge eval-report-html --input eval-report.json --output eval-report.html
 moe-forge eval-compare eval-all.json eval-router.json --output eval-compare.json --html-output eval-compare.html
+moe-forge eval-batch --config eval-batch.json --output-dir eval-runs
 ```
 
 Supported inputs:
@@ -85,6 +86,24 @@ Current evaluation support includes:
 - all-expert, default-pool, and document-router expert modes for routed subset tradeoff runs
 - self-contained HTML reports from eval JSON artifacts
 - multi-report comparison JSON/HTML for quality-first ranking, speed ratios, and active expert summaries
+- config-driven eval batches that run multiple expert modes, emit per-mode reports, compare completed runs, and preserve recovery-eval settings
+
+Example eval batch config:
+
+```json
+{
+  "model": "C:/models/tiny-llama",
+  "wrapper": "wrapper",
+  "output_dir": "eval-runs",
+  "expert_modes": ["all", "default-pool", "router"],
+  "input_ids": [[1, 2, 3, 4]],
+  "write_html": true,
+  "recovery_eval": {
+    "enabled": true,
+    "metrics": ["logits_parity", "teacher_kl"]
+  }
+}
+```
 
 Current carving support includes:
 

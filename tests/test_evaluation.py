@@ -69,6 +69,41 @@ def test_eval_hf_cli_writes_report(tmp_path: Path) -> None:
     assert html_output.read_text(encoding="utf-8").startswith("<!doctype html>")
 
 
+def test_eval_batch_cli_writes_mode_reports_and_comparison(tmp_path: Path) -> None:
+    model_dir = _write_tiny_llama_checkpoint(tmp_path / "tiny-llama")
+    package_dir = _write_wrapper_package(tmp_path, model_dir, with_router=True)
+    output_dir = tmp_path / "batch"
+    config_path = tmp_path / "batch.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "model": str(model_dir),
+                "wrapper": str(package_dir),
+                "output_dir": str(output_dir),
+                "expert_modes": ["all", "default-pool", "router"],
+                "input_ids": [[1, 2, 3, 4], [4, 3, 2, 1]],
+                "write_html": True,
+                "recovery_eval": {"enabled": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    status = main(["eval-batch", "--config", str(config_path)])
+
+    manifest = json.loads((output_dir / "eval-batch-manifest.json").read_text(encoding="utf-8"))
+    assert status == 0
+    assert manifest["run_count"] == 3
+    assert manifest["completed_report_count"] == 3
+    assert [run["expert_mode"] for run in manifest["runs"]] == ["all", "default-pool", "router"]
+    assert manifest["runs"][0]["status"] == "passed"
+    assert manifest["comparison"]["status"] == "written"
+    assert manifest["recovery_eval"]["enabled"] is True
+    assert (output_dir / "eval-all.json").exists()
+    assert (output_dir / "eval-default_pool.html").exists()
+    assert (output_dir / "eval-compare.html").exists()
+
+
 def test_evaluate_hf_dense_vs_carved_reports_routed_subset_tradeoff(tmp_path: Path) -> None:
     model_dir = _write_tiny_llama_checkpoint(tmp_path / "tiny-llama")
     package_dir = _write_wrapper_package(tmp_path, model_dir, with_router=True)

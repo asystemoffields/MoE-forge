@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from .adapters import ADAPTERS
+from .batch import run_eval_batch
 from .carve import build_carve_manifest
 from .evaluation import evaluate_hf_dense_vs_carved
 from .inspectors import inspect_model
@@ -53,6 +54,8 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_eval_report_html(args)
         if args.command == "eval-compare":
             return _cmd_eval_compare(args)
+        if args.command == "eval-batch":
+            return _cmd_eval_batch(args)
     except Exception as exc:  # pragma: no cover - CLI boundary
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -210,6 +213,15 @@ def build_parser() -> argparse.ArgumentParser:
     compare_parser.add_argument("--output", type=Path, required=True, help="Comparison JSON output path.")
     compare_parser.add_argument("--html-output", type=Path, help="Optional self-contained HTML comparison output path.")
     compare_parser.add_argument("--print", action="store_true", help="Also print the comparison JSON.")
+
+    batch_parser = subparsers.add_parser(
+        "eval-batch",
+        help="Run multiple eval-hf modes from a JSON batch config.",
+    )
+    batch_parser.add_argument("--config", type=Path, required=True, help="Eval batch JSON config.")
+    batch_parser.add_argument("--output-dir", type=Path, help="Override the config output_dir.")
+    batch_parser.add_argument("--strict", action="store_true", help="Return non-zero when any completed mode fails.")
+    batch_parser.add_argument("--print", action="store_true", help="Also print the batch manifest JSON.")
 
     return parser
 
@@ -412,6 +424,24 @@ def _cmd_eval_compare(args: argparse.Namespace) -> int:
         print(json.dumps(comparison, indent=2, sort_keys=True))
     else:
         print(f"wrote {args.output}")
+    return 0
+
+
+def _cmd_eval_batch(args: argparse.Namespace) -> int:
+    manifest = run_eval_batch(
+        config_path=args.config,
+        output_dir=args.output_dir,
+        strict=True if args.strict else None,
+    )
+    if args.print:
+        print(json.dumps(manifest, indent=2, sort_keys=True))
+    else:
+        print(f"wrote {Path(manifest['output_dir']) / 'eval-batch-manifest.json'}")
+    has_errors = any(run.get("status") == "error" for run in manifest.get("runs", []))
+    if has_errors:
+        return 1
+    if manifest.get("evaluation", {}).get("strict") and not manifest.get("passed"):
+        return 1
     return 0
 
 
