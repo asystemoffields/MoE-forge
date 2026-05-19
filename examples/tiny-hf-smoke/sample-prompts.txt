@@ -1,0 +1,5 @@
+MoE Forge routes carved experts through a tiny wrapper.
+
+Recovery training compares the carved student with a dense teacher.
+
+A dataset-backed smoke run should record sample identity and artifact provenance.

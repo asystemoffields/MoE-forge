@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -38,9 +39,79 @@ def test_run_eval_batch_writes_reports_comparison_and_manifest(tmp_path: Path) -
     assert manifest["comparison"]["status"] == "written"
     assert manifest["recovery_eval"]["enabled"] is True
     assert compare["report_count"] == 2
-    assert saved_manifest["sample_source"] == {"kind": "input_ids", "sample_count": 1}
+    assert saved_manifest["sample_source"]["kind"] == "input_ids"
+    assert saved_manifest["sample_source"]["sample_count"] == 1
+    assert len(saved_manifest["sample_source"]["sha256"]) == 64
+    assert len(saved_manifest["sample_source"]["sample_sha256"]) == 1
     assert (output_dir / "eval-all.html").exists()
     assert (output_dir / "eval-compare.html").exists()
+
+
+def test_run_eval_batch_records_input_ids_file_identity(tmp_path: Path) -> None:
+    dataset = tmp_path / "tokens.json"
+    dataset.write_text(json.dumps([[7, 8, 9], [9, 8, 7]]), encoding="utf-8")
+    config_path = tmp_path / "batch.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "model": "tiny-model",
+                "wrapper": "wrapper",
+                "output_dir": "batch-out",
+                "expert_modes": ["all"],
+                "input_ids_file": "tokens.json",
+                "write_html": False,
+            }
+        ),
+        encoding="utf-8",
+    )
+    seen: dict[str, object] = {}
+
+    def evaluator(**kwargs):
+        seen["input_ids"] = kwargs["input_ids"]
+        return _FakeReport(mode=kwargs["expert_mode"], passed=True)
+
+    manifest = run_eval_batch(config_path=config_path, evaluator=evaluator)
+
+    source = manifest["sample_source"]
+    assert seen["input_ids"] == [[7, 8, 9], [9, 8, 7]]
+    assert source["kind"] == "input_ids"
+    assert source["sample_count"] == 2
+    assert source["input_ids_file"]["path"] == "tokens.json"
+    assert source["input_ids_file"]["byte_count"] == len(dataset.read_bytes())
+    assert source["input_ids_file"]["sha256"] == hashlib.sha256(dataset.read_bytes()).hexdigest()
+
+
+def test_run_eval_batch_records_text_file_identity(tmp_path: Path) -> None:
+    text_file = tmp_path / "samples.txt"
+    text_file.write_text("alpha sample\n\nbeta sample", encoding="utf-8")
+    config_path = tmp_path / "batch.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "model": "tiny-model",
+                "wrapper": "wrapper",
+                "output_dir": "batch-out",
+                "expert_modes": ["all"],
+                "text_file": "samples.txt",
+                "write_html": False,
+            }
+        ),
+        encoding="utf-8",
+    )
+    seen: dict[str, object] = {}
+
+    def evaluator(**kwargs):
+        seen["texts"] = kwargs["texts"]
+        return _FakeReport(mode=kwargs["expert_mode"], passed=True)
+
+    manifest = run_eval_batch(config_path=config_path, evaluator=evaluator)
+
+    source = manifest["sample_source"]
+    assert seen["texts"] == ["alpha sample", "beta sample"]
+    assert source["kind"] == "text"
+    assert source["sample_count"] == 2
+    assert source["chunk_count"] == 2
+    assert source["text_file"]["sha256"] == hashlib.sha256(text_file.read_bytes()).hexdigest()
 
 
 def test_run_eval_batch_validates_modes(tmp_path: Path) -> None:

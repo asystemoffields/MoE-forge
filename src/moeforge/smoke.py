@@ -25,6 +25,8 @@ def assert_tiny_hf_smoke_run(*, run_dir: Path, output_path: Path | None = None) 
     cli_validation = _dict(payloads.get("cli_validation"))
     before_after = _dict(recovery_report.get("before_after_eval"))
     recovery_summary = _dict(recovery_report.get("summary"))
+    sample_source = _dict(eval_manifest.get("sample_source"))
+    command_manifest = _dict(payloads.get("command_manifest"))
 
     _check(
         checks,
@@ -37,6 +39,12 @@ def assert_tiny_hf_smoke_run(*, run_dir: Path, output_path: Path | None = None) 
         name="eval batch reports teacher quality metrics",
         passed=_runs_have_quality_metrics(eval_manifest),
         evidence={"run_count": len(_list(eval_manifest.get("runs")))},
+    )
+    _check(
+        checks,
+        name="eval batch records sample provenance",
+        passed=_sample_source_has_identity(sample_source),
+        evidence=_sample_source_evidence(sample_source),
     )
     _check(
         checks,
@@ -90,6 +98,16 @@ def assert_tiny_hf_smoke_run(*, run_dir: Path, output_path: Path | None = None) 
             "recovery_experiment_html": str(run_dir / "recovery-experiment" / "recovery-experiment.html"),
         },
     )
+    if command_manifest:
+        _check(
+            checks,
+            name="command manifest records runnable recipe",
+            passed=_command_manifest_has_recipe(command_manifest),
+            evidence={
+                "command_count": len(_list(command_manifest.get("commands"))),
+                "config_count": len(_list(command_manifest.get("configs"))),
+            },
+        )
 
     report = {
         "format": "moeforge_tiny_hf_smoke_assertions",
@@ -109,6 +127,17 @@ def assert_tiny_hf_smoke_run(*, run_dir: Path, output_path: Path | None = None) 
                 "changed_tensor_count": _dict(validation.get("tensor_comparison")).get("changed_tensor_count"),
                 "loaded_layer_count": _dict(validation.get("reload")).get("loaded_layer_count"),
             },
+            "provenance": {
+                "sample_source": sample_source,
+                "command_manifest": command_manifest or None,
+                "eval_config_path": eval_manifest.get("config_path"),
+                "before_eval_manifest": recovery_report.get("artifacts", {}).get("before_eval_manifest")
+                if isinstance(recovery_report.get("artifacts"), dict)
+                else None,
+                "after_eval_manifest": recovery_report.get("artifacts", {}).get("after_eval_manifest")
+                if isinstance(recovery_report.get("artifacts"), dict)
+                else None,
+            },
         },
         "artifacts": {name: str(path) for name, path in artifacts.items()},
         "summary": recovery_summary,
@@ -126,12 +155,13 @@ def _artifact_paths(run_dir: Path) -> dict[str, Path]:
         "recovery_html": run_dir / "recovery-experiment" / "recovery-experiment.html",
         "validation": run_dir / "recovery-experiment" / "recovered-wrapper-validation.json",
         "cli_validation": run_dir / "recovery-experiment" / "recovered-wrapper-validation-cli.json",
+        "command_manifest": run_dir / "commands.json",
     }
 
 
 def _load_json(path: Path, *, label: str, checks: list[dict[str, Any]]) -> dict[str, Any]:
     if not path.exists():
-        if label == "cli_validation":
+        if label in {"cli_validation", "command_manifest"}:
             return {}
         _check(checks, name=f"artifact exists: {label}", passed=False, evidence={"path": str(path)})
         return {}
@@ -153,6 +183,54 @@ def _runs_have_quality_metrics(manifest: dict[str, Any]) -> bool:
         and int(run.get("loss_token_count") or 0) > 0
         for run in runs
     )
+
+
+def _sample_source_has_identity(source: dict[str, Any]) -> bool:
+    kind = source.get("kind")
+    if kind == "generated_smoke_input_ids":
+        return True
+    sample_count = source.get("sample_count")
+    sample_hashes = source.get("sample_sha256")
+    if kind not in {"input_ids", "text"}:
+        return False
+    if not isinstance(sample_count, int) or sample_count <= 0:
+        return False
+    if not isinstance(source.get("sha256"), str) or len(str(source.get("sha256"))) != 64:
+        return False
+    if not isinstance(sample_hashes, list) or len(sample_hashes) != sample_count:
+        return False
+    if source.get("input_ids_file") is not None and not _file_identity_is_complete(_dict(source.get("input_ids_file"))):
+        return False
+    if source.get("text_file") is not None and not _file_identity_is_complete(_dict(source.get("text_file"))):
+        return False
+    return True
+
+
+def _sample_source_evidence(source: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "kind": source.get("kind"),
+        "sample_count": source.get("sample_count"),
+        "sha256": source.get("sha256"),
+        "input_ids_file": source.get("input_ids_file"),
+        "text_file": source.get("text_file"),
+    }
+
+
+def _file_identity_is_complete(identity: dict[str, Any]) -> bool:
+    return (
+        isinstance(identity.get("path"), str)
+        and isinstance(identity.get("resolved_path"), str)
+        and isinstance(identity.get("byte_count"), int)
+        and int(identity.get("byte_count") or 0) > 0
+        and isinstance(identity.get("sha256"), str)
+        and len(str(identity.get("sha256"))) == 64
+    )
+
+
+def _command_manifest_has_recipe(payload: dict[str, Any]) -> bool:
+    commands = _list(payload.get("commands"))
+    configs = _list(payload.get("configs"))
+    return bool(commands) and all(isinstance(item, str) and item.strip() for item in commands) and bool(configs)
 
 
 def _mode_deltas_have_quality_metrics(comparison: dict[str, Any]) -> bool:

@@ -34,7 +34,8 @@ def run_recovery_experiment(
     model = _model_ref(config, base_dir=base_dir)
     wrapper = _required_path(config, "wrapper", base_dir=base_dir)
     recovered_wrapper = run_dir / "recovered-wrapper"
-    eval_config = _dict(config.get("eval"))
+    eval_config = _resolve_sample_file_refs(_dict(config.get("eval")), base_dir=base_dir)
+    train_config = _resolve_sample_file_refs(_dict(config.get("train")), base_dir=base_dir)
 
     before_config_path = run_dir / "before" / "eval-batch-config.json"
     before_config = _eval_batch_config(
@@ -51,6 +52,8 @@ def run_recovery_experiment(
     recovery_plan_path = run_dir / "recovery" / "recovery-plan.json"
     recovery_config = _recovery_config(
         config=config,
+        eval_config=eval_config,
+        train_config=train_config,
         model=model,
         wrapper=wrapper,
         output_dir=run_dir / "recovery",
@@ -537,17 +540,25 @@ def _eval_batch_config(
     return payload
 
 
-def _recovery_config(*, config: dict[str, Any], model: Path, wrapper: Path, output_dir: Path) -> dict[str, Any]:
+def _recovery_config(
+    *,
+    config: dict[str, Any],
+    eval_config: dict[str, Any],
+    train_config: dict[str, Any],
+    model: Path,
+    wrapper: Path,
+    output_dir: Path,
+) -> dict[str, Any]:
     recovery = _dict(config.get("recovery"))
     payload = dict(recovery)
     payload["teacher_model"] = str(config.get("teacher_model", model))
     payload["student_model"] = str(config.get("student_model", model))
     payload["wrapper"] = str(wrapper)
     payload["output_dir"] = str(output_dir)
-    if "train" in config:
-        payload.setdefault("train", config["train"])
-    if "eval" in config and "eval" not in payload:
-        payload["eval"] = _eval_samples_from_batch(_dict(config["eval"]))
+    if train_config:
+        payload.setdefault("train", train_config)
+    if eval_config and "eval" not in payload:
+        payload["eval"] = _eval_samples_from_batch(eval_config)
     return payload
 
 
@@ -555,6 +566,7 @@ def _eval_samples_from_batch(eval_config: dict[str, Any]) -> dict[str, Any]:
     keys = [
         "input_ids",
         "input_ids_json",
+        "input_ids_file",
         "text",
         "texts",
         "text_file",
@@ -562,6 +574,15 @@ def _eval_samples_from_batch(eval_config: dict[str, Any]) -> dict[str, Any]:
         "max_samples",
     ]
     return {key: eval_config[key] for key in keys if key in eval_config}
+
+
+def _resolve_sample_file_refs(config: dict[str, Any], *, base_dir: Path) -> dict[str, Any]:
+    payload = dict(config)
+    for key in ("input_ids_file", "text_file"):
+        value = payload.get(key)
+        if value is not None and str(value).strip():
+            payload[key] = str(_resolve_path(Path(str(value)), base_dir=base_dir))
+    return payload
 
 
 def _last_checkpoint_path(recovery_report: dict[str, Any]) -> Path:

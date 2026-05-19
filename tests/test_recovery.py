@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -63,6 +64,7 @@ def test_write_recovery_plan_records_training_settings_and_before_after(tmp_path
     assert saved["schedule"]["steps"] == 12
     assert saved["checkpoints"]["keep_last"] == 3
     assert saved["samples"]["train"]["sample_count"] == 2
+    assert saved["samples"]["train"]["source"]["text_file"]["sha256"] == hashlib.sha256(train_text.read_bytes()).hexdigest()
     assert saved["samples"]["eval"]["samples"][0]["token_count"] == 4
     assert saved["before_after_eval"]["summary"]["improved_modes_by_max_abs_error"] == 2
     assert saved["before_after_eval"]["summary"]["improved_modes_by_teacher_kl"] == 2
@@ -92,6 +94,31 @@ def test_recovery_plan_cli_writes_output(tmp_path: Path) -> None:
     assert payload["artifacts"]["plan_path"] == str(output_path)
     assert payload["samples"]["train"]["kind"] == "input_ids"
     assert payload["before_after_eval"]["status"] == "not_configured"
+
+
+def test_write_recovery_plan_records_input_ids_file_identity(tmp_path: Path) -> None:
+    dataset = tmp_path / "train-tokens.json"
+    dataset.write_text(json.dumps([[1, 2, 3], [3, 2, 1]]), encoding="utf-8")
+    config_path = tmp_path / "recovery.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "teacher_model": "dense-teacher",
+                "wrapper": "wrapper",
+                "train": {"input_ids_file": "train-tokens.json"},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    plan = write_recovery_plan(config_path=config_path)
+
+    train = plan["samples"]["train"]
+    assert train["kind"] == "input_ids"
+    assert train["sample_count"] == 2
+    assert train["source"]["input_ids_file"]["path"] == "train-tokens.json"
+    assert train["source"]["input_ids_file"]["sha256"] == hashlib.sha256(dataset.read_bytes()).hexdigest()
+    assert train["samples"][0]["input_ids"] == [1, 2, 3]
 
 
 def test_compare_eval_batch_manifests_reports_missing_modes(tmp_path: Path) -> None:

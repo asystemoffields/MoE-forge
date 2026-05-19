@@ -5,11 +5,7 @@
   "strict_validation": true,
   "eval": {
     "expert_modes": ["all", "default-pool", "router"],
-    "input_ids": [
-      [1, 2, 3, 4],
-      [4, 3, 2, 1],
-      [2, 5, 8, 13]
-    ],
+    "input_ids_file": "token-ids.json",
     "write_html": true,
     "recovery_eval": {
       "enabled": true,
@@ -17,12 +13,7 @@
     }
   },
   "train": {
-    "input_ids": [
-      [1, 2, 3, 4],
-      [4, 3, 2, 1],
-      [2, 5, 8, 13],
-      [3, 1, 4, 1]
-    ]
+    "input_ids_file": "token-ids.json"
   },
   "recovery": {
     "loss": {

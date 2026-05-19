@@ -11,6 +11,7 @@ class RecoveryPlanError(RuntimeError):
 
 
 def build_recovery_plan(*, config_path: Path) -> dict[str, Any]:
+    config_path = config_path.resolve()
     config = _load_config(config_path)
     base_dir = config_path.parent
     output_dir = _output_dir(config=config, base_dir=base_dir)
@@ -211,7 +212,7 @@ def _sample_manifest(
     base_dir: Path,
     warnings: list[str],
 ) -> dict[str, Any]:
-    input_ids = _input_ids(section)
+    input_ids = _input_ids(section, base_dir=base_dir)
     texts = _texts(section, base_dir=base_dir)
     if input_ids is not None and texts is not None:
         raise RecoveryPlanError(f"{split} samples can provide input_ids or text samples, not both")
@@ -234,6 +235,7 @@ def _sample_manifest(
             "sample_count": len(samples),
             "sequence_length": sequence_length,
             "max_samples": max_samples,
+            "source": _input_id_source(section, input_ids=input_ids, base_dir=base_dir),
             "samples": samples,
         }
     if texts is not None:
@@ -252,6 +254,7 @@ def _sample_manifest(
             "sample_count": len(samples),
             "sequence_length": sequence_length,
             "max_samples": max_samples,
+            "source": _text_source(section, texts=texts, base_dir=base_dir),
             "samples": samples,
         }
     warnings.append(f"{split} samples are unspecified; recovery runner should provide data before training")
@@ -374,8 +377,20 @@ def _output_dir(*, config: dict[str, Any], base_dir: Path) -> Path:
     return _resolve_path(Path(str(value)), base_dir=base_dir)
 
 
-def _input_ids(section: dict[str, Any]) -> list[list[int]] | None:
-    if "input_ids_json" in section:
+def _input_ids(section: dict[str, Any], *, base_dir: Path) -> list[list[int]] | None:
+    configured = [
+        key
+        for key in ("input_ids", "input_ids_json", "input_ids_file")
+        if section.get(key) is not None
+    ]
+    if len(configured) > 1:
+        raise RecoveryPlanError(
+            "samples can provide only one of input_ids, input_ids_json, or input_ids_file"
+        )
+    if section.get("input_ids_file") is not None:
+        path = _resolve_path(Path(str(section["input_ids_file"])), base_dir=base_dir)
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    elif "input_ids_json" in section:
         raw = json.loads(str(section["input_ids_json"]))
     else:
         raw = section.get("input_ids")
@@ -436,6 +451,63 @@ def _sha256_json(value: Any) -> str:
 
 def _sha256_text(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _input_id_source(
+    section: dict[str, Any],
+    *,
+    input_ids: list[list[int]],
+    base_dir: Path,
+) -> dict[str, Any]:
+    source: dict[str, Any] = {
+        "kind": "input_ids",
+        "sample_count": len(input_ids),
+        "sha256": _sha256_json(input_ids),
+        "sample_sha256": [_sha256_json(sample) for sample in input_ids],
+    }
+    if section.get("input_ids_file") is not None:
+        source["input_ids_file"] = _file_identity(
+            Path(str(section["input_ids_file"])),
+            base_dir=base_dir,
+        )
+    elif "input_ids_json" in section:
+        source["source"] = "input_ids_json"
+    else:
+        source["source"] = "inline_input_ids"
+    return source
+
+
+def _file_identity(path: Path, *, base_dir: Path) -> dict[str, Any]:
+    resolved = _resolve_path(path, base_dir=base_dir)
+    data = resolved.read_bytes()
+    return {
+        "path": str(path),
+        "resolved_path": str(resolved),
+        "byte_count": len(data),
+        "sha256": hashlib.sha256(data).hexdigest(),
+    }
+
+
+def _text_source(
+    section: dict[str, Any],
+    *,
+    texts: list[dict[str, str]],
+    base_dir: Path,
+) -> dict[str, Any]:
+    values = [item["text"] for item in texts]
+    source: dict[str, Any] = {
+        "kind": "text",
+        "sample_count": len(values),
+        "sha256": _sha256_json(values),
+        "sample_sha256": [_sha256_text(value) for value in values],
+    }
+    if section.get("text_file") is not None:
+        source["text_file"] = _file_identity(Path(str(section["text_file"])), base_dir=base_dir)
+    elif section.get("texts") is not None:
+        source["source"] = "inline_texts"
+    else:
+        source["source"] = "inline_text"
+    return source
 
 
 def _delta(before: Any, after: Any) -> float | None:

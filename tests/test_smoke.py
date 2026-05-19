@@ -18,6 +18,7 @@ def test_assert_tiny_hf_smoke_run_writes_lab_notebook_report(tmp_path: Path) -> 
     assert saved["metrics"]["eval_batch"]["teacher_kl_loss_by_mode"]["router"] == 0.03
     assert saved["metrics"]["recovery_quality"]["teacher_kl_delta_by_mode"]["router"] == -0.02
     assert saved["metrics"]["recovered_wrapper"]["updated_tensor_count"] == 18
+    assert saved["metrics"]["provenance"]["sample_source"]["kind"] == "input_ids"
 
 
 def test_smoke_assert_cli_returns_nonzero_on_missing_artifacts(tmp_path: Path) -> None:
@@ -42,6 +43,18 @@ def _write_smoke_artifacts(path: Path) -> None:
         eval_dir / "eval-batch-manifest.json",
         {
             "format": "moeforge_eval_batch",
+            "sample_source": {
+                "kind": "input_ids",
+                "sample_count": 2,
+                "sha256": "0" * 64,
+                "sample_sha256": ["1" * 64, "2" * 64],
+                "input_ids_file": {
+                    "path": "token-ids.json",
+                    "resolved_path": str(path / "token-ids.json"),
+                    "byte_count": 32,
+                    "sha256": "3" * 64,
+                },
+            },
             "run_count": 3,
             "completed_report_count": 3,
             "runs": [
@@ -95,6 +108,14 @@ def _write_smoke_artifacts(path: Path) -> None:
     _write_json(experiment_dir / "recovery-experiment-report.json", recovery_report)
     _write_json(experiment_dir / "recovered-wrapper-validation.json", validation)
     _write_json(experiment_dir / "recovered-wrapper-validation-cli.json", validation)
+    _write_json(
+        path / "commands.json",
+        {
+            "format": "moeforge_tiny_hf_smoke_commands",
+            "commands": ["moe-forge eval-batch --config eval-batch-file.json"],
+            "configs": ["eval-batch-file.json", "recovery-experiment-file.json"],
+        },
+    )
 
 
 def _run(mode: str, *, teacher_kl: float, nll_delta: float) -> dict:

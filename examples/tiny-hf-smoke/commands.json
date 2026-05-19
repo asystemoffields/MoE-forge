@@ -1,0 +1,27 @@
+{
+  "format": "moeforge_tiny_hf_smoke_commands",
+  "commands": [
+    "pip install -e \"..\\..[hf]\"",
+    "python make_tiny_llama.py --output tiny-llama",
+    "moe-forge carve-manifest tiny-llama --recipe recipe.json --output carve-manifest.json",
+    "moe-forge carve-apply --manifest carve-manifest.json --output-dir carved-artifact",
+    "moe-forge carve-verify --manifest carve-manifest.json --artifact carved-artifact/carved-experts.safetensors --output carve-verify-report.json",
+    "moe-forge wrapper-export --manifest carve-manifest.json --artifact carved-artifact/carved-experts.safetensors --router-plan router-plan.json --copy-artifact --output-dir wrapper",
+    "moe-forge eval-batch --config eval-batch.json",
+    "moe-forge recovery-experiment --config recovery-experiment.json --max-steps 2",
+    "moe-forge recovery-validate --source-wrapper wrapper --recovered-wrapper recovery-experiment/recovered-wrapper --checkpoint recovery-experiment/recovery/checkpoints/checkpoint-step-2.json --output recovery-experiment/recovered-wrapper-validation-cli.json",
+    "moe-forge smoke-assert --run-dir . --output smoke-assertions.json"
+  ],
+  "configs": [
+    "recipe.json",
+    "router-plan.json",
+    "eval-batch.json",
+    "recovery-experiment.json",
+    "recovery-experiment-longer.json",
+    "eval-batch-text.json"
+  ],
+  "datasets": [
+    "token-ids.json",
+    "sample-prompts.txt"
+  ]
+}

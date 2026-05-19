@@ -95,6 +95,41 @@ def test_run_recovery_experiment_resolves_relative_config_paths(tmp_path: Path, 
     assert recovery_config["wrapper"] == str(tmp_path / "wrapper")
 
 
+def test_run_recovery_experiment_preserves_input_ids_file_samples(tmp_path: Path) -> None:
+    (tmp_path / "eval-tokens.json").write_text(json.dumps([[1, 2, 3]]), encoding="utf-8")
+    (tmp_path / "train-tokens.json").write_text(json.dumps([[3, 2, 1]]), encoding="utf-8")
+    config_path = tmp_path / "experiment.json"
+    output_dir = tmp_path / "experiment"
+    config_path.write_text(
+        json.dumps(
+            {
+                "model": str(tmp_path / "tiny-model"),
+                "wrapper": str(tmp_path / "wrapper"),
+                "output_dir": str(output_dir),
+                "eval": {"expert_modes": ["all"], "input_ids_file": "eval-tokens.json"},
+                "train": {"input_ids_file": "train-tokens.json"},
+                "recovery": {"schedule": {"steps": 1}},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = run_recovery_experiment(
+        config_path=config_path,
+        evaluator=_fake_evaluator,
+        recovery_runner=_fake_recovery_runner,
+        exporter=_fake_exporter,
+        validator=_fake_validator,
+    )
+
+    before_config = json.loads((output_dir / "before" / "eval-batch-config.json").read_text(encoding="utf-8"))
+    recovery_config = json.loads((output_dir / "recovery" / "recovery-config.json").read_text(encoding="utf-8"))
+    assert before_config["input_ids_file"] == str(tmp_path / "eval-tokens.json")
+    assert recovery_config["eval"]["input_ids_file"] == str(tmp_path / "eval-tokens.json")
+    assert recovery_config["train"]["input_ids_file"] == str(tmp_path / "train-tokens.json")
+    assert report["before_eval_batch"]["sample_source"]["input_ids_file"]["path"] == str(tmp_path / "eval-tokens.json")
+
+
 def _fake_evaluator(**kwargs):
     mode = kwargs["expert_mode"]
     recovered = "recovered-wrapper" in str(kwargs["package_dir"])

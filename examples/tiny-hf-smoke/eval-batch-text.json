@@ -1,9 +1,9 @@
 {
   "model": "tiny-llama",
   "wrapper": "wrapper",
-  "output_dir": "eval-runs",
+  "output_dir": "eval-runs-text",
   "expert_modes": ["all", "default-pool", "router"],
-  "input_ids_file": "token-ids.json",
+  "text_file": "sample-prompts.txt",
   "write_html": true,
   "recovery_eval": {
     "enabled": true,

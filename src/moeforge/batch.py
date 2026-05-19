@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -22,6 +23,7 @@ def run_eval_batch(
     strict: bool | None = None,
     evaluator: Any = evaluate_hf_dense_vs_carved,
 ) -> dict[str, Any]:
+    config_path = config_path.resolve()
     config = _load_config(config_path)
     base_dir = config_path.parent
     model = _required_path(config, "model", base_dir=base_dir)
@@ -33,7 +35,7 @@ def run_eval_batch(
     batch_strict = bool(config.get("strict", False)) if strict is None else strict
     write_html = bool(config.get("write_html", config.get("html", True)))
     stop_on_error = bool(config.get("stop_on_error", False))
-    input_ids = _input_ids(config)
+    input_ids = _input_ids(config, base_dir=base_dir)
     texts = _texts(config, base_dir=base_dir)
     if input_ids is not None and texts is not None:
         raise EvalBatchError("eval-batch config can provide input_ids or text samples, not both")
@@ -107,7 +109,12 @@ def run_eval_batch(
         "wrapper": str(wrapper),
         "output_dir": str(run_dir),
         "expert_modes": expert_modes,
-        "sample_source": _sample_source(config=config, input_ids=input_ids, texts=texts),
+        "sample_source": _sample_source(
+            config=config,
+            input_ids=input_ids,
+            texts=texts,
+            base_dir=base_dir,
+        ),
         "evaluation": {
             **eval_options,
             "strict": batch_strict,
@@ -166,8 +173,20 @@ def _expert_modes(config: dict[str, Any]) -> list[str]:
     return modes
 
 
-def _input_ids(config: dict[str, Any]) -> list[list[int]] | None:
-    if "input_ids_json" in config:
+def _input_ids(config: dict[str, Any], *, base_dir: Path) -> list[list[int]] | None:
+    configured = [
+        key
+        for key in ("input_ids", "input_ids_json", "input_ids_file")
+        if config.get(key) is not None
+    ]
+    if len(configured) > 1:
+        raise EvalBatchError(
+            "eval-batch config can provide only one of input_ids, input_ids_json, or input_ids_file"
+        )
+    if config.get("input_ids_file") is not None:
+        path = _resolve_path(Path(str(config["input_ids_file"])), base_dir=base_dir)
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    elif "input_ids_json" in config:
         raw = json.loads(str(config["input_ids_json"]))
     else:
         raw = config.get("input_ids")
@@ -175,7 +194,15 @@ def _input_ids(config: dict[str, Any]) -> list[list[int]] | None:
         return None
     if not isinstance(raw, list):
         raise EvalBatchError("input_ids must be a list of token-id lists")
-    return raw
+    normalized = []
+    for sample in raw:
+        if not isinstance(sample, list):
+            raise EvalBatchError("input_ids samples must be token-id lists")
+        try:
+            normalized.append([int(item) for item in sample])
+        except (TypeError, ValueError) as exc:
+            raise EvalBatchError("input_ids samples must contain integer token ids") from exc
+    return normalized
 
 
 def _texts(config: dict[str, Any], *, base_dir: Path) -> list[str] | None:
@@ -262,13 +289,35 @@ def _sample_source(
     config: dict[str, Any],
     input_ids: list[list[int]] | None,
     texts: list[str] | None,
+    base_dir: Path,
 ) -> dict[str, Any]:
     if input_ids is not None:
-        return {"kind": "input_ids", "sample_count": len(input_ids)}
+        source: dict[str, Any] = {
+            "kind": "input_ids",
+            "sample_count": len(input_ids),
+            "sha256": _sha256_json(input_ids),
+            "sample_sha256": [_sha256_json(sample) for sample in input_ids],
+        }
+        if config.get("input_ids_file") is not None:
+            source["input_ids_file"] = _file_identity(
+                Path(str(config["input_ids_file"])),
+                base_dir=base_dir,
+            )
+        elif "input_ids_json" in config:
+            source["source"] = "input_ids_json"
+        else:
+            source["source"] = "inline_input_ids"
+        return source
     if texts is not None:
-        source: dict[str, Any] = {"kind": "text", "sample_count": len(texts)}
+        source = {
+            "kind": "text",
+            "sample_count": len(texts),
+            "sha256": _sha256_json(texts),
+            "sample_sha256": [_sha256_text(text) for text in texts],
+        }
         if config.get("text_file"):
-            source["text_file"] = str(config["text_file"])
+            source["text_file"] = _file_identity(Path(str(config["text_file"])), base_dir=base_dir)
+            source["chunk_count"] = len(texts)
         return source
     return {"kind": "generated_smoke_input_ids", "sample_count": None}
 
@@ -297,3 +346,22 @@ def _mode_slug(mode: str) -> str:
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _file_identity(path: Path, *, base_dir: Path) -> dict[str, Any]:
+    resolved = _resolve_path(path, base_dir=base_dir)
+    data = resolved.read_bytes()
+    return {
+        "path": str(path),
+        "resolved_path": str(resolved),
+        "byte_count": len(data),
+        "sha256": hashlib.sha256(data).hexdigest(),
+    }
+
+
+def _sha256_json(value: Any) -> str:
+    return hashlib.sha256(json.dumps(value, sort_keys=True).encode("utf-8")).hexdigest()
+
+
+def _sha256_text(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
