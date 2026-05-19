@@ -25,6 +25,7 @@ from .recovery_runner import export_recovered_wrapper, run_recovery, validate_re
 from .recipe import recipe_to_dict
 from .router import build_router_plan
 from .runtime import verify_carved_artifact
+from .smoke import assert_tiny_hf_smoke_run
 from .wrapper import export_wrapper_package
 
 
@@ -69,6 +70,8 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_recovery_validate(args)
         if args.command == "recovery-experiment":
             return _cmd_recovery_experiment(args)
+        if args.command == "smoke-assert":
+            return _cmd_smoke_assert(args)
     except Exception as exc:  # pragma: no cover - CLI boundary
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -318,6 +321,18 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Also print the experiment report JSON.",
     )
+
+    smoke_parser = subparsers.add_parser(
+        "smoke-assert",
+        help="Assert expected artifacts and metrics from a tiny HF smoke run.",
+    )
+    smoke_parser.add_argument("--run-dir", type=Path, default=Path("."), help="Directory containing the smoke run artifacts.")
+    smoke_parser.add_argument(
+        "--output",
+        type=Path,
+        help="Smoke assertion JSON output path. Defaults to <run-dir>/smoke-assertions.json.",
+    )
+    smoke_parser.add_argument("--print", action="store_true", help="Also print the assertion report JSON.")
 
     return parser
 
@@ -600,6 +615,16 @@ def _cmd_recovery_experiment(args: argparse.Namespace) -> int:
     else:
         print(f"wrote {report['artifacts']['json_report']}")
     return 0
+
+
+def _cmd_smoke_assert(args: argparse.Namespace) -> int:
+    output_path = args.output or args.run_dir / "smoke-assertions.json"
+    report = assert_tiny_hf_smoke_run(run_dir=args.run_dir, output_path=output_path)
+    if args.print:
+        print(json.dumps(report, indent=2, sort_keys=True))
+    else:
+        print(f"{report['status']}; wrote {output_path}")
+    return 0 if report.get("passed") else 1
 
 
 def _load_optional_texts(*, text: str | None, text_file: Path | None) -> list[str] | None:

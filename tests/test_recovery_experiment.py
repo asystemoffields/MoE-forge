@@ -51,6 +51,10 @@ def test_run_recovery_experiment_orchestrates_before_recover_after(tmp_path: Pat
     assert report["summary"]["recovered_wrapper_validation_status"] == "validated"
     assert report["summary"]["recovered_updated_tensor_count"] == 1
     assert report["summary"]["improved_modes_by_teacher_kl"] == 2
+    assert report["summary"]["total_loss_delta"] == -0.75
+    assert report["quality_trends"]["training"]["final_teacher_kl"] == 0.05
+    assert report["quality_trends"]["before_after_quality"]["average_teacher_kl_delta"] < 0
+    assert report["quality_trends"]["before_after_quality"]["best_nll_delta_mode"]["expert_mode"] in {"all", "router"}
     assert comparison["mode_deltas"][0]["max_abs_error_delta"] < 0
     assert comparison["mode_deltas"][0]["teacher_kl_loss_delta"] < 0
     assert Path(report["artifacts"]["html_report"]).exists()
@@ -171,6 +175,24 @@ def _fake_recovery_runner(*, plan_path: Path, output_path: Path, max_steps: int 
         "initial_loss": 1.0,
         "final_loss": 0.25,
         "steps_completed": max_steps or 2,
+        "losses": [
+            {
+                "step": 1,
+                "total_loss": 1.0,
+                "teacher_kl": 0.2,
+                "logits_mse": 0.1,
+                "z_loss": 0.0,
+                "learning_rate": 0.001,
+            },
+            {
+                "step": max_steps or 2,
+                "total_loss": 0.25,
+                "teacher_kl": 0.05,
+                "logits_mse": 0.025,
+                "z_loss": 0.0,
+                "learning_rate": 0.001,
+            },
+        ],
         "checkpoints": [checkpoint],
         "warnings": [],
     }

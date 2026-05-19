@@ -14,6 +14,7 @@ moe-forge wrapper-export --manifest carve-manifest.json --artifact carved-artifa
 moe-forge eval-batch --config eval-batch.json
 moe-forge recovery-experiment --config recovery-experiment.json --max-steps 2
 moe-forge recovery-validate --source-wrapper wrapper --recovered-wrapper recovery-experiment/recovered-wrapper --checkpoint recovery-experiment/recovery/checkpoints/checkpoint-step-2.json --output recovery-experiment/recovered-wrapper-validation-cli.json
+moe-forge smoke-assert --run-dir . --output smoke-assertions.json
 ```
 
 Expected lab-notebook artifacts:
@@ -23,5 +24,12 @@ Expected lab-notebook artifacts:
 - `recovery-experiment/recovery-experiment-report.json`
 - `recovery-experiment/recovery-experiment.html`
 - `recovery-experiment/recovered-wrapper-validation.json`
+- `smoke-assertions.json`
 
 The eval and recovery reports include logits parity, teacher-KL, next-token NLL, active experts, latency ratios, and recovered tensor metadata.
+
+For a longer local run, use `recovery-experiment-longer.json`. It keeps the same tiny model and sample style, but runs 20 recovery steps and records extra checkpoints:
+
+```powershell
+moe-forge recovery-experiment --config recovery-experiment-longer.json
+```

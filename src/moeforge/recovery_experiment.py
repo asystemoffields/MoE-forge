@@ -137,6 +137,9 @@ def render_recovery_experiment_html(report: dict[str, Any]) -> str:
     artifacts = _dict(report.get("artifacts"))
     before_batch = _dict(report.get("before_eval_batch"))
     after_batch = _dict(report.get("after_eval_batch"))
+    quality_trends = _dict(report.get("quality_trends"))
+    training_trend = _dict(quality_trends.get("training"))
+    before_after_quality = _dict(quality_trends.get("before_after_quality"))
     for item in comparison.get("mode_deltas", []):
         if not isinstance(item, dict):
             continue
@@ -175,6 +178,22 @@ def render_recovery_experiment_html(report: dict[str, Any]) -> str:
             f"<td>{escape('pass' if passed else 'fail')}</td>"
             "</tr>"
         )
+    quality_rows = []
+    for item in before_after_quality.get("modes", []):
+        if not isinstance(item, dict):
+            continue
+        quality_rows.append(
+            "<tr>"
+            f"<td>{escape(_text(item.get('expert_mode')))}</td>"
+            f"<td>{escape(_number(item.get('teacher_kl_loss_before')))}</td>"
+            f"<td>{escape(_number(item.get('teacher_kl_loss_after')))}</td>"
+            f"<td>{escape(_number(item.get('teacher_kl_loss_delta')))}</td>"
+            f"<td>{escape(_number(item.get('nll_loss_delta_before')))}</td>"
+            f"<td>{escape(_number(item.get('nll_loss_delta_after')))}</td>"
+            f"<td>{escape(_number(item.get('nll_loss_delta_delta')))}</td>"
+            f"<td>{escape(_text(item.get('loss_token_count_after')))}</td>"
+            "</tr>"
+        )
     artifact_rows = [
         ("Before Eval Manifest", artifacts.get("before_eval_manifest")),
         ("After Eval Manifest", artifacts.get("after_eval_manifest")),
@@ -202,6 +221,9 @@ def render_recovery_experiment_html(report: dict[str, Any]) -> str:
             _card("Improved KL Modes", summary.get("improved_modes_by_teacher_kl")),
             _card("Initial Loss", summary.get("initial_loss")),
             _card("Final Loss", summary.get("final_loss")),
+            _card("Total Loss Delta", summary.get("total_loss_delta")),
+            _card("Avg KL Delta", summary.get("average_teacher_kl_delta")),
+            _card("Avg NLL Delta", summary.get("average_nll_delta_delta")),
             _card("Validation", validation.get("status")),
             _card("Updated Tensors", tensor_comparison.get("updated_tensor_count")),
             _card("Changed Tensors", tensor_comparison.get("changed_tensor_count")),
@@ -233,6 +255,38 @@ def render_recovery_experiment_html(report: dict[str, Any]) -> str:
             '<div class="table-wrap"><table>',
             "<thead><tr><th>Config Check</th><th>Status</th></tr></thead>",
             f"<tbody>{''.join(check_rows)}</tbody>",
+            "</table></div>",
+            "</section>",
+            "<section>",
+            "<h2>Quality Trends</h2>",
+            '<div class="grid-2">',
+            _fact_panel(
+                "Recovery Training",
+                [
+                    ("Steps", training_trend.get("step_count")),
+                    ("Initial total loss", training_trend.get("initial_total_loss")),
+                    ("Final total loss", training_trend.get("final_total_loss")),
+                    ("Total loss delta", training_trend.get("total_loss_delta")),
+                    ("Final teacher KL", training_trend.get("final_teacher_kl")),
+                ],
+            ),
+            _fact_panel(
+                "Before/After Quality",
+                [
+                    ("Compared modes", before_after_quality.get("mode_count")),
+                    ("Average teacher KL delta", before_after_quality.get("average_teacher_kl_delta")),
+                    ("Average NLL delta delta", before_after_quality.get("average_nll_delta_delta")),
+                    ("Best KL mode", _dict(before_after_quality.get("best_teacher_kl_mode")).get("expert_mode")),
+                    ("Best NLL mode", _dict(before_after_quality.get("best_nll_delta_mode")).get("expert_mode")),
+                ],
+            ),
+            "</div>",
+            '<div class="table-wrap"><table>',
+            "<thead><tr>"
+            "<th>Mode</th><th>Before KL</th><th>After KL</th><th>Delta KL</th>"
+            "<th>Before NLL Delta</th><th>After NLL Delta</th><th>Delta</th><th>Tokens</th>"
+            "</tr></thead>",
+            f"<tbody>{''.join(quality_rows)}</tbody>",
             "</table></div>",
             "</section>",
             "<section>",
@@ -295,6 +349,7 @@ def _experiment_report(
     comparison_summary = _dict(comparison.get("summary"))
     tensor_comparison = _dict(validation_report.get("tensor_comparison"))
     reload_report = _dict(validation_report.get("reload"))
+    quality_trends = _quality_trends(comparison=comparison, recovery_report=recovery_report)
     return {
         "format": "moeforge_recovery_experiment",
         "config_path": str(config_path),
@@ -310,6 +365,9 @@ def _experiment_report(
             "recovered_updated_tensor_count": tensor_comparison.get("updated_tensor_count"),
             "recovered_changed_tensor_count": tensor_comparison.get("changed_tensor_count"),
             "recovered_reload_layer_count": reload_report.get("loaded_layer_count"),
+            "average_teacher_kl_delta": _dict(quality_trends.get("before_after_quality")).get("average_teacher_kl_delta"),
+            "average_nll_delta_delta": _dict(quality_trends.get("before_after_quality")).get("average_nll_delta_delta"),
+            "total_loss_delta": _dict(quality_trends.get("training")).get("total_loss_delta"),
             **comparison_summary,
         },
         "artifacts": {
@@ -341,7 +399,121 @@ def _experiment_report(
         "recovery_export": export_report,
         "recovered_wrapper_validation": validation_report,
         "before_after_eval": comparison,
+        "quality_trends": quality_trends,
     }
+
+
+def _quality_trends(*, comparison: dict[str, Any], recovery_report: dict[str, Any]) -> dict[str, Any]:
+    mode_deltas = [
+        item
+        for item in comparison.get("mode_deltas", [])
+        if isinstance(item, dict) and item.get("status") == "compared"
+    ]
+    return {
+        "training": _training_trend(recovery_report),
+        "before_after_quality": {
+            "mode_count": len(mode_deltas),
+            "average_teacher_kl_delta": _average_numeric(
+                item.get("teacher_kl_loss_delta") for item in mode_deltas
+            ),
+            "average_carved_nll_delta": _average_numeric(
+                item.get("carved_nll_loss_delta") for item in mode_deltas
+            ),
+            "average_nll_delta_delta": _average_numeric(
+                item.get("nll_loss_delta_delta") for item in mode_deltas
+            ),
+            "best_teacher_kl_mode": _mode_extreme(mode_deltas, key="teacher_kl_loss_delta", prefer="min"),
+            "worst_teacher_kl_mode": _mode_extreme(mode_deltas, key="teacher_kl_loss_delta", prefer="max"),
+            "best_nll_delta_mode": _mode_extreme(mode_deltas, key="nll_loss_delta_delta", prefer="min"),
+            "modes": [
+                {
+                    "expert_mode": item.get("expert_mode"),
+                    "max_abs_error_delta": item.get("max_abs_error_delta"),
+                    "teacher_kl_loss_before": item.get("teacher_kl_loss_before"),
+                    "teacher_kl_loss_after": item.get("teacher_kl_loss_after"),
+                    "teacher_kl_loss_delta": item.get("teacher_kl_loss_delta"),
+                    "carved_nll_loss_before": item.get("carved_nll_loss_before"),
+                    "carved_nll_loss_after": item.get("carved_nll_loss_after"),
+                    "carved_nll_loss_delta": item.get("carved_nll_loss_delta"),
+                    "nll_loss_delta_before": item.get("nll_loss_delta_before"),
+                    "nll_loss_delta_after": item.get("nll_loss_delta_after"),
+                    "nll_loss_delta_delta": item.get("nll_loss_delta_delta"),
+                    "loss_token_count_before": item.get("loss_token_count_before"),
+                    "loss_token_count_after": item.get("loss_token_count_after"),
+                }
+                for item in mode_deltas
+            ],
+        },
+    }
+
+
+def _training_trend(recovery_report: dict[str, Any]) -> dict[str, Any]:
+    losses = [item for item in recovery_report.get("losses", []) if isinstance(item, dict)]
+    first = losses[0] if losses else {}
+    last = losses[-1] if losses else {}
+    total_values = [_numeric(item.get("total_loss")) for item in losses]
+    teacher_kl_values = [_numeric(item.get("teacher_kl")) for item in losses]
+    total_values = [value for value in total_values if value is not None]
+    teacher_kl_values = [value for value in teacher_kl_values if value is not None]
+    return {
+        "step_count": len(losses),
+        "initial_total_loss": first.get("total_loss", recovery_report.get("initial_loss")),
+        "final_total_loss": last.get("total_loss", recovery_report.get("final_loss")),
+        "total_loss_delta": _delta(first.get("total_loss"), last.get("total_loss")),
+        "min_total_loss": min(total_values) if total_values else None,
+        "initial_teacher_kl": first.get("teacher_kl"),
+        "final_teacher_kl": last.get("teacher_kl"),
+        "teacher_kl_delta": _delta(first.get("teacher_kl"), last.get("teacher_kl")),
+        "min_teacher_kl": min(teacher_kl_values) if teacher_kl_values else None,
+        "loss_points": [
+            {
+                "step": item.get("step"),
+                "total_loss": item.get("total_loss"),
+                "teacher_kl": item.get("teacher_kl"),
+                "logits_mse": item.get("logits_mse"),
+                "z_loss": item.get("z_loss"),
+                "learning_rate": item.get("learning_rate"),
+            }
+            for item in losses
+        ],
+    }
+
+
+def _mode_extreme(items: list[dict[str, Any]], *, key: str, prefer: str) -> dict[str, Any] | None:
+    scored = [(item, _numeric(item.get(key))) for item in items]
+    scored = [(item, value) for item, value in scored if value is not None]
+    if not scored:
+        return None
+    selected = min(scored, key=lambda pair: pair[1]) if prefer == "min" else max(scored, key=lambda pair: pair[1])
+    return {
+        "expert_mode": selected[0].get("expert_mode"),
+        key: selected[1],
+    }
+
+
+def _average_numeric(values: Any) -> float | None:
+    numbers = [_numeric(value) for value in values]
+    numbers = [value for value in numbers if value is not None]
+    if not numbers:
+        return None
+    return float(sum(numbers) / len(numbers))
+
+
+def _delta(before: Any, after: Any) -> float | None:
+    before_number = _numeric(before)
+    after_number = _numeric(after)
+    if before_number is None or after_number is None:
+        return None
+    return after_number - before_number
+
+
+def _numeric(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _eval_batch_config(
