@@ -71,6 +71,7 @@ Current wrapper support includes:
 - optional router-plan packaging
 - reloadable carved layer runtime from wrapper config
 - PyTorch module loading for carved FFN layer parity and selected expert subsets
+- in-place FFN replacement for tiny HF causal-LM parity checks
 
 Current carving support includes:
 

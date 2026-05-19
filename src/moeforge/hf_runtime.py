@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from dataclasses import asdict, dataclass, field
 import json
+from itertools import chain
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +24,27 @@ _TorchModule = torch.nn.Module if torch is not None else object
 
 class MoEForgeHFError(RuntimeError):
     """Raised when a Transformers-facing wrapper cannot be loaded or executed."""
+
+
+@dataclass(slots=True)
+class HFModuleReplacement:
+    layer: int
+    module_path: str
+    original_class: str
+    replacement_class: str
+    device: str
+    dtype: str | None
+
+
+@dataclass(slots=True)
+class HFReplacementReport:
+    package_dir: str
+    adapter_family: str | None
+    replaced: list[HFModuleReplacement] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
 
 
 class MoEForgeConfig(_PretrainedConfig):
@@ -273,6 +296,50 @@ def hf_config_payload_from_wrapper(wrapper_config: WrapperConfig) -> dict[str, A
     }
 
 
+def replace_hf_mlp_modules(
+    model: Any,
+    package_dir: str | Path,
+    *,
+    layers: list[int] | None = None,
+    config: MoEForgeConfig | None = None,
+) -> HFReplacementReport:
+    if torch is None:  # pragma: no cover - optional dependency boundary
+        raise MoEForgeHFError("HF runtime requires torch")
+
+    package = Path(package_dir)
+    resolved_config = config or MoEForgeConfig.from_package(package)
+    layer_ids = resolved_config.layer_ids() if layers is None else layers
+    report = HFReplacementReport(
+        package_dir=str(package),
+        adapter_family=resolved_config.adapter_family,
+    )
+
+    for layer in layer_ids:
+        module_path = _resolve_mlp_module_path(model, layer=layer, adapter_family=resolved_config.adapter_family)
+        parent_path, attribute = module_path.rsplit(".", 1)
+        parent = model.get_submodule(parent_path)
+        original = getattr(parent, attribute)
+        device, dtype = _module_device_dtype(original)
+        replacement = MoEForgeCarvedMLPModule.from_package(package, layer=layer, config=resolved_config)
+        if dtype is None:
+            replacement = replacement.to(device=device)
+        else:
+            replacement = replacement.to(device=device, dtype=dtype)
+        setattr(parent, attribute, replacement)
+        report.replaced.append(
+            HFModuleReplacement(
+                layer=layer,
+                module_path=module_path,
+                original_class=original.__class__.__name__,
+                replacement_class=replacement.__class__.__name__,
+                device=str(device),
+                dtype=str(dtype) if dtype is not None else None,
+            )
+        )
+
+    return report
+
+
 def _resolve_layer(layer: int | None, config: MoEForgeConfig) -> int:
     if layer is not None:
         if layer not in config.layer_ids():
@@ -282,6 +349,37 @@ def _resolve_layer(layer: int | None, config: MoEForgeConfig) -> int:
     if len(layer_ids) != 1:
         raise MoEForgeHFError("layer must be provided when the wrapper package contains multiple layers")
     return layer_ids[0]
+
+
+def _resolve_mlp_module_path(model: Any, *, layer: int, adapter_family: str | None) -> str:
+    candidates = _mlp_module_path_candidates(layer=layer, adapter_family=adapter_family)
+    for candidate in candidates:
+        try:
+            model.get_submodule(candidate)
+        except AttributeError:
+            continue
+        return candidate
+    raise MoEForgeHFError(
+        f"could not find an FFN module for layer {layer}; tried {', '.join(candidates)}"
+    )
+
+
+def _mlp_module_path_candidates(*, layer: int, adapter_family: str | None) -> list[str]:
+    common = [
+        f"model.layers.{layer}.mlp",
+        f"language_model.model.layers.{layer}.mlp",
+    ]
+    if adapter_family == "gemma":
+        return [common[1], common[0]]
+    return common
+
+
+def _module_device_dtype(module: Any) -> tuple[Any, Any | None]:
+    tensors = chain(module.parameters(recurse=True), module.buffers(recurse=True))
+    for tensor in tensors:
+        dtype = tensor.dtype if tensor.is_floating_point() else None
+        return tensor.device, dtype
+    return torch.device("cpu"), None
 
 
 def _has_router_request(

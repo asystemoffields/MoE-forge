@@ -6,7 +6,12 @@ from pathlib import Path
 import pytest
 
 from moeforge.carve import build_carve_manifest
-from moeforge.hf_runtime import MoEForgeCarvedMLPModule, MoEForgeConfig, MoEForgeHFError
+from moeforge.hf_runtime import (
+    MoEForgeCarvedMLPModule,
+    MoEForgeConfig,
+    MoEForgeHFError,
+    replace_hf_mlp_modules,
+)
 from moeforge.materialize import materialize_carve_manifest
 from moeforge.runtime import dense_gated_mlp_forward
 from moeforge.wrapper import export_wrapper_package
@@ -80,6 +85,40 @@ def test_hf_module_requires_layer_for_multi_layer_package(tmp_path: Path) -> Non
     assert MoEForgeCarvedMLPModule.from_package(package_dir, layer=1).layer == 1
 
 
+def test_replace_hf_mlp_modules_preserves_tiny_llama_outputs(tmp_path: Path) -> None:
+    transformers = pytest.importorskip("transformers")
+    model_dir = _write_tiny_llama_checkpoint(tmp_path / "tiny-llama", transformers=transformers)
+    package_dir = _write_wrapper_package_from_checkpoint(
+        tmp_path,
+        model_dir,
+        layers=[0, 1],
+        intermediate_size=16,
+        shared_channels=4,
+        expert_channels=[4, 4, 4],
+    )
+    dense = transformers.LlamaForCausalLM.from_pretrained(model_dir)
+    patched = transformers.LlamaForCausalLM.from_pretrained(model_dir)
+    dense.eval()
+    patched.eval()
+
+    with torch.no_grad():
+        hidden_states = torch.randn(2, 3, dense.config.hidden_size)
+        for layer in [0, 1]:
+            original = dense.model.layers[layer].mlp(hidden_states)
+            replacement = MoEForgeCarvedMLPModule.from_package(package_dir, layer=layer)
+            assert torch.allclose(replacement(hidden_states), original, atol=1e-6)
+
+        report = replace_hf_mlp_modules(patched, package_dir)
+        input_ids = torch.tensor([[1, 2, 3, 4], [4, 3, 2, 1]], dtype=torch.long)
+        dense_logits = dense(input_ids=input_ids).logits
+        patched_logits = patched(input_ids=input_ids).logits
+
+    assert [item.layer for item in report.replaced] == [0, 1]
+    assert report.replaced[0].module_path == "model.layers.0.mlp"
+    assert report.replaced[0].original_class == "LlamaMLP"
+    assert torch.allclose(patched_logits, dense_logits, atol=1e-5)
+
+
 def _write_wrapper_package(tmp_path: Path, *, layers: list[int] | None = None) -> Path:
     model = _write_checkpoint(tmp_path / "model", layers=layers or [0])
     manifest_path = _write_manifest(tmp_path, model, layers=layers or [0])
@@ -96,6 +135,35 @@ def _write_wrapper_package(tmp_path: Path, *, layers: list[int] | None = None) -
         manifest_path=manifest_path,
         artifact_path=artifact_dir / "carved-experts.safetensors",
         router_plan_path=router_path,
+        output_dir=package_dir,
+        copy_artifact=True,
+    )
+    return package_dir
+
+
+def _write_wrapper_package_from_checkpoint(
+    tmp_path: Path,
+    model: Path,
+    *,
+    layers: list[int],
+    intermediate_size: int,
+    shared_channels: int,
+    expert_channels: list[int],
+) -> Path:
+    manifest_path = _write_manifest(
+        tmp_path,
+        model,
+        layers=layers,
+        intermediate_size=intermediate_size,
+        shared_channels=shared_channels,
+        expert_channels=expert_channels,
+    )
+    artifact_dir = tmp_path / "artifact"
+    materialize_carve_manifest(manifest_path=manifest_path, output_dir=artifact_dir)
+    package_dir = tmp_path / "wrapper"
+    export_wrapper_package(
+        manifest_path=manifest_path,
+        artifact_path=artifact_dir / "carved-experts.safetensors",
         output_dir=package_dir,
         copy_artifact=True,
     )
@@ -126,22 +194,31 @@ def _write_checkpoint(path: Path, *, layers: list[int]) -> Path:
     return path
 
 
-def _write_manifest(tmp_path: Path, model: Path, *, layers: list[int]) -> Path:
+def _write_manifest(
+    tmp_path: Path,
+    model: Path,
+    *,
+    layers: list[int],
+    intermediate_size: int = 4,
+    shared_channels: int = 1,
+    expert_channels: list[int] | None = None,
+) -> Path:
+    expert_channels = expert_channels or [2, 1]
     recipe_path = tmp_path / "recipe.json"
     recipe_path.write_text(
         json.dumps(
             {
                 "strategy": "carved_mlp",
-                "experts": 2,
+                "experts": len(expert_channels),
                 "shared_ratio": 0.25,
                 "moe_layers": layers,
                 "layout": {
                     "layers": [
                         {
                             "layer": layer,
-                            "intermediate_size": 4,
-                            "shared_channels": 1,
-                            "expert_channels": [2, 1],
+                            "intermediate_size": intermediate_size,
+                            "shared_channels": shared_channels,
+                            "expert_channels": expert_channels,
                         }
                         for layer in layers
                     ]
@@ -154,3 +231,21 @@ def _write_manifest(tmp_path: Path, model: Path, *, layers: list[int]) -> Path:
     manifest_path = tmp_path / "manifest.json"
     manifest_path.write_text(json.dumps(manifest.to_dict()), encoding="utf-8")
     return manifest_path
+
+
+def _write_tiny_llama_checkpoint(path: Path, *, transformers) -> Path:
+    torch.manual_seed(1234)
+    config = transformers.LlamaConfig(
+        attention_bias=False,
+        hidden_size=8,
+        intermediate_size=16,
+        max_position_embeddings=16,
+        num_attention_heads=2,
+        num_hidden_layers=2,
+        num_key_value_heads=2,
+        tie_word_embeddings=False,
+        vocab_size=32,
+    )
+    model = transformers.LlamaForCausalLM(config)
+    model.save_pretrained(path, safe_serialization=True)
+    return path
