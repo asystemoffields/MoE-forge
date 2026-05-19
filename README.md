@@ -31,6 +31,7 @@ moe-forge carve-apply --manifest carve-manifest.json --output-dir carved-artifac
 moe-forge carve-verify --manifest carve-manifest.json --artifact carved-artifact/carved-experts.safetensors
 moe-forge wrapper-export --manifest carve-manifest.json --artifact carved-artifact/carved-experts.safetensors --router-plan router-plan.json --output-dir wrapper
 moe-forge eval-hf <model-path> --wrapper wrapper --output eval-report.json
+moe-forge eval-report-html --input eval-report.json --output eval-report.html
 ```
 
 Supported inputs:
@@ -81,6 +82,7 @@ Current evaluation support includes:
 - per-layer dense/all-expert/selected-expert attribution
 - replacement metadata, active expert records, memory notes, warnings, and package metadata
 - all-expert, default-pool, and document-router expert modes for routed subset tradeoff runs
+- self-contained HTML reports from eval JSON artifacts
 
 Current carving support includes:
 

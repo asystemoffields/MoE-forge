@@ -13,6 +13,7 @@ from .inspectors import inspect_model
 from .materialize import materialize_carve_manifest
 from .planner import PlanOptions, plan_conversion
 from .profiling import ProfileOptions, load_calibration_texts, profile_hf_model
+from .reports import write_eval_html_report, write_eval_html_report_payload
 from .recipe import recipe_to_dict
 from .router import build_router_plan
 from .runtime import verify_carved_artifact
@@ -44,6 +45,8 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_wrapper_export(args)
         if args.command == "eval-hf":
             return _cmd_eval_hf(args)
+        if args.command == "eval-report-html":
+            return _cmd_eval_report_html(args)
     except Exception as exc:  # pragma: no cover - CLI boundary
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -183,7 +186,15 @@ def build_parser() -> argparse.ArgumentParser:
     eval_parser.add_argument("--rtol", type=float, default=1e-5, help="Relative allclose tolerance for logits.")
     eval_parser.add_argument("--strict", action="store_true", help="Return non-zero when logits do not pass allclose.")
     eval_parser.add_argument("--output", type=Path, default=Path("moeforge-eval-report.json"), help="Evaluation report output path.")
+    eval_parser.add_argument("--html-output", type=Path, help="Optional self-contained HTML report output path.")
     eval_parser.add_argument("--print", action="store_true", help="Also print the evaluation report JSON.")
+
+    report_parser = subparsers.add_parser(
+        "eval-report-html",
+        help="Render an eval-hf JSON report as self-contained HTML.",
+    )
+    report_parser.add_argument("--input", type=Path, required=True, help="Evaluation JSON report from eval-hf.")
+    report_parser.add_argument("--output", type=Path, required=True, help="HTML report output path.")
 
     return parser
 
@@ -360,12 +371,20 @@ def _cmd_eval_hf(args: argparse.Namespace) -> int:
     )
     payload = report.to_dict()
     _write_json(args.output, payload)
+    if args.html_output:
+        write_eval_html_report_payload(report=payload, output_path=args.html_output)
     if args.print:
         print(json.dumps(payload, indent=2, sort_keys=True))
     else:
         status = "passed" if report.passed else "failed"
         print(f"{status}; wrote {args.output}")
     return 0 if report.passed or not args.strict else 1
+
+
+def _cmd_eval_report_html(args: argparse.Namespace) -> int:
+    write_eval_html_report(report_path=args.input, output_path=args.output)
+    print(f"wrote {args.output}")
+    return 0
 
 
 def _load_optional_texts(*, text: str | None, text_file: Path | None) -> list[str] | None:

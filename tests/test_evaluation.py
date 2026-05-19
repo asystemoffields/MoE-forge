@@ -45,6 +45,7 @@ def test_eval_hf_cli_writes_report(tmp_path: Path) -> None:
     model_dir = _write_tiny_llama_checkpoint(tmp_path / "tiny-llama")
     package_dir = _write_wrapper_package(tmp_path, model_dir)
     output = tmp_path / "eval-report.json"
+    html_output = tmp_path / "eval-report.html"
 
     status = main(
         [
@@ -56,6 +57,8 @@ def test_eval_hf_cli_writes_report(tmp_path: Path) -> None:
             "[[1, 2, 3, 4]]",
             "--output",
             str(output),
+            "--html-output",
+            str(html_output),
         ]
     )
     payload = json.loads(output.read_text(encoding="utf-8"))
@@ -63,6 +66,7 @@ def test_eval_hf_cli_writes_report(tmp_path: Path) -> None:
     assert status == 0
     assert payload["passed"] is True
     assert payload["sample_count"] == 1
+    assert html_output.read_text(encoding="utf-8").startswith("<!doctype html>")
 
 
 def test_evaluate_hf_dense_vs_carved_reports_routed_subset_tradeoff(tmp_path: Path) -> None:
