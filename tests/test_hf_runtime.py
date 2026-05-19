@@ -96,6 +96,7 @@ def test_replace_hf_mlp_modules_preserves_tiny_llama_outputs(tmp_path: Path) -> 
         intermediate_size=16,
         shared_channels=4,
         expert_channels=[4, 4, 4],
+        copy_source_model=True,
     )
     dense = transformers.LlamaForCausalLM.from_pretrained(model_dir)
     patched = transformers.LlamaForCausalLM.from_pretrained(model_dir)
@@ -130,6 +131,7 @@ def test_auto_model_loads_wrapper_package_as_causal_lm(tmp_path: Path) -> None:
         intermediate_size=16,
         shared_channels=4,
         expert_channels=[4, 4, 4],
+        copy_source_model=True,
     )
     dense = transformers.AutoModelForCausalLM.from_pretrained(model_dir)
     moe = transformers.AutoModelForCausalLM.from_pretrained(package_dir)
@@ -143,6 +145,7 @@ def test_auto_model_loads_wrapper_package_as_causal_lm(tmp_path: Path) -> None:
 
     assert isinstance(moe, MoEForgeForCausalLM)
     assert moe.config.model_type == "moeforge_carved_moe"
+    assert moe.config.source_model == "source-model"
     assert [item.layer for item in moe.replacement_report.replaced] == [0, 1]
     assert torch.allclose(moe_logits, dense_logits, atol=1e-5)
 
@@ -177,6 +180,7 @@ def _write_wrapper_package_from_checkpoint(
     intermediate_size: int,
     shared_channels: int,
     expert_channels: list[int],
+    copy_source_model: bool = False,
 ) -> Path:
     manifest_path = _write_manifest(
         tmp_path,
@@ -194,6 +198,7 @@ def _write_wrapper_package_from_checkpoint(
         artifact_path=artifact_dir / "carved-experts.safetensors",
         output_dir=package_dir,
         copy_artifact=True,
+        copy_source_model=copy_source_model,
     )
     return package_dir
 

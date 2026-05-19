@@ -190,6 +190,7 @@ def build_parser() -> argparse.ArgumentParser:
     wrapper_parser.add_argument("--router-plan", type=Path, help="Optional router-plan JSON.")
     wrapper_parser.add_argument("--activation", default="silu", help="FFN activation: silu, gelu, or gelu_tanh.")
     wrapper_parser.add_argument("--copy-artifact", action="store_true", help="Copy the safetensors artifact into the wrapper directory.")
+    wrapper_parser.add_argument("--copy-source-model", action="store_true", help="Copy the dense source checkpoint into the wrapper package.")
     wrapper_parser.add_argument("--output-dir", type=Path, required=True, help="Wrapper package output directory.")
     wrapper_parser.add_argument("--print", action="store_true", help="Also print the wrapper config JSON.")
 
@@ -501,6 +502,7 @@ def _cmd_wrapper_export(args: argparse.Namespace) -> int:
         router_plan_path=args.router_plan,
         activation=args.activation,
         copy_artifact=args.copy_artifact,
+        copy_source_model=args.copy_source_model,
     )
     payload = config.to_dict()
     if args.print:

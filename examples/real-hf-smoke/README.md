@@ -13,7 +13,7 @@ moe-forge inspect $model --json
 moe-forge carve-manifest $model --recipe recipe.json --output carve-manifest.json
 moe-forge carve-apply --manifest carve-manifest.json --output-dir carved-artifact
 moe-forge carve-verify --manifest carve-manifest.json --artifact carved-artifact/carved-experts.safetensors --output carve-verify-report.json
-moe-forge wrapper-export --manifest carve-manifest.json --artifact carved-artifact/carved-experts.safetensors --router-plan router-plan.json --copy-artifact --output-dir wrapper
+moe-forge wrapper-export --manifest carve-manifest.json --artifact carved-artifact/carved-experts.safetensors --router-plan router-plan.json --copy-artifact --copy-source-model --output-dir wrapper
 ```
 
 Copy the template configs and replace `<LOCAL_HF_CHECKPOINT>` with the same checkpoint path:

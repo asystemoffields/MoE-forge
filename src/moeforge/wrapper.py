@@ -50,6 +50,7 @@ def export_wrapper_package(
     router_plan_path: Path | None = None,
     activation: str = "silu",
     copy_artifact: bool = False,
+    copy_source_model: bool = False,
 ) -> WrapperConfig:
     manifest = _read_json(manifest_path)
     if not artifact_path.exists():
@@ -75,11 +76,15 @@ def export_wrapper_package(
     else:
         artifact_ref = str(artifact_path.resolve())
 
+    source_model_ref = str(manifest.get("source_model", ""))
+    if copy_source_model:
+        source_model_ref = _copy_source_model(source_model_ref, output_dir=output_dir)
+
     config = WrapperConfig(
         format_version=1,
         model_type="moeforge_carved_moe",
         adapter_family=manifest.get("adapter_family"),
-        source_model=str(manifest.get("source_model", "")),
+        source_model=source_model_ref,
         manifest_path=local_manifest.name,
         artifact_path=artifact_ref,
         router_plan_path=local_router.name if local_router else None,
@@ -180,6 +185,17 @@ def _copy_if_different(source: Path, destination: Path) -> None:
     shutil.copy2(source, destination)
 
 
+def _copy_source_model(source_model: str, *, output_dir: Path) -> str:
+    source = Path(source_model)
+    if not source.is_dir():
+        raise WrapperError(f"copy_source_model requires a local source model directory: {source_model}")
+    destination = output_dir / "source-model"
+    if source.resolve() == destination.resolve():
+        return destination.name
+    shutil.copytree(source, destination, dirs_exist_ok=True)
+    return destination.name
+
+
 def _write_wrapper_readme(output_dir: Path, config: WrapperConfig) -> None:
     lines = [
         "# MoE Forge Wrapper Package",
@@ -200,6 +216,7 @@ def _write_wrapper_readme(output_dir: Path, config: WrapperConfig) -> None:
             f"Activation: `{config.activation}`",
             f"Expert count: `{config.expert_count}`",
             f"Layers: `{', '.join(str(item.layer) for item in config.layers)}`",
+            f"Source model: `{config.source_model}`",
             "",
             "Load as a Transformers causal LM:",
             "",

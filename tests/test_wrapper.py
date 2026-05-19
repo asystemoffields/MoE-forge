@@ -75,6 +75,30 @@ def test_export_wrapper_package_can_reference_external_artifact(tmp_path: Path) 
     assert not (package_dir / "carved-experts.safetensors").exists()
 
 
+def test_export_wrapper_package_can_copy_source_model(tmp_path: Path) -> None:
+    model = _write_checkpoint(tmp_path / "model")
+    manifest_path = _write_manifest(tmp_path, model)
+    artifact_dir = tmp_path / "artifact"
+    materialize_carve_manifest(manifest_path=manifest_path, output_dir=artifact_dir)
+
+    package_dir = tmp_path / "wrapper"
+    config = export_wrapper_package(
+        manifest_path=manifest_path,
+        artifact_path=artifact_dir / "carved-experts.safetensors",
+        output_dir=package_dir,
+        copy_artifact=True,
+        copy_source_model=True,
+    )
+    payload = json.loads((package_dir / "moeforge_config.json").read_text(encoding="utf-8"))
+    hf_payload = json.loads((package_dir / "config.json").read_text(encoding="utf-8"))
+
+    assert config.source_model == "source-model"
+    assert payload["source_model"] == "source-model"
+    assert hf_payload["source_model"] == "source-model"
+    assert (package_dir / "source-model" / "config.json").exists()
+    assert (package_dir / "source-model" / "model.safetensors").exists()
+
+
 def test_export_wrapper_package_can_reexport_from_package_paths(tmp_path: Path) -> None:
     model = _write_checkpoint(tmp_path / "model")
     manifest_path = _write_manifest(tmp_path, model)
