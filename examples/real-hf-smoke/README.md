@@ -23,6 +23,7 @@ Copy-Item eval-batch-text.template.json eval-batch-text.json
 Copy-Item recovery-experiment-text-3step.template.json recovery-experiment-text-3step.json
 moe-forge eval-batch --config eval-batch-text.json
 moe-forge recovery-experiment --config recovery-experiment-text-3step.json
+moe-forge model-card --wrapper wrapper --eval-report eval-runs-text/eval-learned_router.json --recovery-report recovery-experiment-text-3step/recovery-experiment-report.json --validation-report recovery-experiment-text-3step/recovered-wrapper-validation.json --output MODEL_CARD.md
 ```
 
 Check the wrapper through native Transformers loading:
@@ -41,5 +42,6 @@ Expected lab-notebook artifacts:
 - `recovery-experiment-text-3step/recovered-wrapper-validation.json`
 - `recovery-experiment-text-3step/recovered-wrapper/recovery-export-report.json`
 - `recovery-experiment-text-3step/recovered-wrapper/learned-router.safetensors` when router recovery is enabled
+- `MODEL_CARD.md`
 
-The reports record text-file SHA-256 provenance, active expert selections, learned-router token counts, latency ratios, teacher-KL and next-token NLL deltas, recovered tensor metadata, checkpoint identity, and recovered-wrapper validation evidence.
+The reports and model card record text-file SHA-256 provenance, active expert selections, learned-router token counts, latency ratios, teacher-KL and next-token NLL deltas, recovered tensor metadata, checkpoint identity, reproduction commands, and recovered-wrapper validation evidence.

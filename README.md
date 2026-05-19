@@ -41,6 +41,7 @@ moe-forge recovery-export --checkpoint checkpoints/checkpoint-step-100.json --wr
 moe-forge recovery-validate --source-wrapper wrapper --recovered-wrapper recovered-wrapper --checkpoint checkpoints/checkpoint-step-100.json
 moe-forge recovery-experiment --config recovery-experiment.json --output-dir recovery-experiment
 moe-forge recovery-compare recovery-a.json recovery-b.json --output recovery-compare.json --html-output recovery-compare.html
+moe-forge model-card --wrapper wrapper --eval-report eval-report.json --recovery-report recovery-experiment/recovery-experiment-report.json --validation-report recovery-experiment/recovered-wrapper-validation.json --output MODEL_CARD.md
 moe-forge smoke-assert --run-dir . --output smoke-assertions.json
 ```
 
@@ -107,6 +108,7 @@ Current evaluation support includes:
 - router-only recovery export that writes learned router state to `learned-router.safetensors`
 - recovered-wrapper validation that reloads package metadata, checks checkpoint/export compatibility, and compares original vs recovered safetensors metadata
 - recovery experiment orchestration that runs before/after eval batches around recovery and writes JSON/HTML comparison reports with validation evidence
+- Markdown model-card generation from wrapper metadata plus eval, router-activity, recovery, validation, and reproduction-command artifacts
 - smoke assertions that verify tiny HF recipe artifacts, quality metrics, recovered-wrapper validation, and report links
 
 Example eval batch config:

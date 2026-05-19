@@ -12,6 +12,7 @@ from .carve import build_carve_manifest
 from .evaluation import evaluate_hf_dense_vs_carved
 from .inspectors import inspect_model
 from .materialize import materialize_carve_manifest
+from .model_card import write_model_card
 from .planner import PlanOptions, plan_conversion
 from .profiling import ProfileOptions, load_calibration_texts, profile_hf_model
 from .recovery_compare import write_recovery_comparison_report
@@ -73,6 +74,8 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_recovery_experiment(args)
         if args.command == "recovery-compare":
             return _cmd_recovery_compare(args)
+        if args.command == "model-card":
+            return _cmd_model_card(args)
         if args.command == "smoke-assert":
             return _cmd_smoke_assert(args)
     except Exception as exc:  # pragma: no cover - CLI boundary
@@ -340,6 +343,47 @@ def build_parser() -> argparse.ArgumentParser:
     recovery_compare_parser.add_argument("--output", type=Path, required=True, help="Comparison JSON output path.")
     recovery_compare_parser.add_argument("--html-output", type=Path, help="Optional self-contained HTML output path.")
     recovery_compare_parser.add_argument("--print", action="store_true", help="Also print the comparison JSON.")
+
+    model_card_parser = subparsers.add_parser(
+        "model-card",
+        help="Write a package-ready Markdown model card from wrapper and report artifacts.",
+    )
+    model_card_parser.add_argument("--wrapper", type=Path, required=True, help="Wrapper package directory.")
+    model_card_parser.add_argument(
+        "--output",
+        type=Path,
+        default=Path("MODEL_CARD.md"),
+        help="Markdown model-card output path.",
+    )
+    model_card_parser.add_argument(
+        "--eval-report",
+        type=Path,
+        action="append",
+        default=[],
+        help="Evaluation JSON report to summarize. Can be supplied multiple times.",
+    )
+    model_card_parser.add_argument(
+        "--recovery-report",
+        type=Path,
+        action="append",
+        default=[],
+        help="Recovery or recovery-experiment JSON report to summarize. Can be supplied multiple times.",
+    )
+    model_card_parser.add_argument(
+        "--validation-report",
+        type=Path,
+        action="append",
+        default=[],
+        help="Recovered-wrapper validation JSON report to summarize. Can be supplied multiple times.",
+    )
+    model_card_parser.add_argument(
+        "--command",
+        dest="commands",
+        action="append",
+        default=[],
+        help="Reproduction command to include in the card. Can be supplied multiple times.",
+    )
+    model_card_parser.add_argument("--print", action="store_true", help="Also print the model-card summary JSON.")
 
     smoke_parser = subparsers.add_parser(
         "smoke-assert",
@@ -646,6 +690,22 @@ def _cmd_recovery_compare(args: argparse.Namespace) -> int:
     )
     if args.print:
         print(json.dumps(comparison, indent=2, sort_keys=True))
+    else:
+        print(f"wrote {args.output}")
+    return 0
+
+
+def _cmd_model_card(args: argparse.Namespace) -> int:
+    summary = write_model_card(
+        wrapper_dir=args.wrapper,
+        output_path=args.output,
+        eval_reports=args.eval_report,
+        recovery_reports=args.recovery_report,
+        validation_reports=args.validation_report,
+        commands=args.commands,
+    )
+    if args.print:
+        print(json.dumps(summary, indent=2, sort_keys=True))
     else:
         print(f"wrote {args.output}")
     return 0
