@@ -158,6 +158,9 @@ def _router_activity_section(paths: list[Path], reports: list[dict[str, Any]]) -
                         _text(row["token_count"]),
                         _format_expert_map(row["expert_token_counts"]),
                         _format_float_map(row["mean_selected_weight_by_expert"]),
+                        _text(row.get("unique_route_count")),
+                        _number(row.get("selected_expert_entropy")),
+                        _format_expert_map(row["route_token_counts"]),
                     ]
                 )
                 + " |"
@@ -167,8 +170,8 @@ def _router_activity_section(paths: list[Path], reports: list[dict[str, Any]]) -
     return [
         "### Router Activity",
         "",
-        "| Report | Layer | Mode | Top K | Tokens | Expert Token Counts | Mean Selected Weights |",
-        "| --- | ---: | --- | ---: | ---: | --- | --- |",
+        "| Report | Layer | Mode | Top K | Tokens | Expert Token Counts | Mean Selected Weights | Unique Routes | Entropy | Route Counts |",
+        "| --- | ---: | --- | ---: | ---: | --- | --- | ---: | ---: | --- |",
         *rows,
         "",
     ]
@@ -331,12 +334,26 @@ def _router_activity_rows(report: dict[str, Any]) -> list[dict[str, Any]]:
                 "token_count": 0,
                 "expert_token_counts": {},
                 "mean_selected_weight_by_expert": {},
+                "route_token_counts": {},
+                "unique_route_count": None,
+                "selected_expert_entropy": None,
                 "_weight_denominators": {},
             },
         )
         row["token_count"] += token_count
         for expert, count in _dict(item.get("expert_token_counts")).items():
             row["expert_token_counts"][str(expert)] = row["expert_token_counts"].get(str(expert), 0) + _int(count)
+        for route, count in _dict(item.get("route_token_counts")).items():
+            row["route_token_counts"][str(route)] = row["route_token_counts"].get(str(route), 0) + _int(count)
+        if item.get("unique_route_count") is not None:
+            row["unique_route_count"] = max(_int(row.get("unique_route_count")), _int(item.get("unique_route_count")))
+        if item.get("selected_expert_entropy") is not None:
+            row["selected_expert_entropy"] = _weighted_average(
+                row.get("selected_expert_entropy"),
+                row["token_count"] - token_count,
+                _float(item.get("selected_expert_entropy")),
+                token_count,
+            )
         weight_denominator = token_count or 1
         for expert, weight in _dict(item.get("mean_selected_weight_by_expert")).items():
             expert_key = str(expert)
@@ -355,6 +372,14 @@ def _router_activity_rows(report: dict[str, Any]) -> list[dict[str, Any]]:
         }
         rows.append(row)
     return sorted(rows, key=lambda row: (_int(row["layer"]), row["mode"], row["top_k"]))
+
+
+def _weighted_average(current: Any, current_weight: int, incoming: float, incoming_weight: int) -> float:
+    total_weight = max(0, current_weight) + max(0, incoming_weight)
+    if total_weight == 0:
+        return incoming
+    current_value = _float(current) if current is not None else 0.0
+    return ((current_value * max(0, current_weight)) + (incoming * max(0, incoming_weight))) / total_weight
 
 
 def _modes(report: dict[str, Any]) -> list[str]:

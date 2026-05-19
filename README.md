@@ -23,6 +23,7 @@ The first implementation slice focuses on reliable inspection and recipe plannin
 ```powershell
 moe-forge adapters
 moe-forge inspect <model-path> --json
+moe-forge preflight --model <model-path> --recipe recipe.json --wrapper wrapper --output preflight-report.json
 moe-forge plan <model-path> --goal balanced --output recipe.json
 moe-forge plan <model-path> --moe-layers all --output whole-model-recipe.json
 moe-forge profile <model-path> --text-file calibration.txt --output profile.json
@@ -99,6 +100,7 @@ Current evaluation support includes:
 - teacher-KL, dense next-token NLL, carved next-token NLL, NLL deltas, and loss-token counts
 - all-expert, default-pool, and document-router expert modes for routed subset tradeoff runs
 - learned-router eval mode with per-layer token counts, top-k, expert token counts, and selected-weight summaries
+- learned-router route-pattern introspection with unique route counts, entropy, probability mass, and compact route-token summaries
 - self-contained HTML reports from eval JSON artifacts
 - multi-report comparison JSON/HTML for quality-first ranking, speed ratios, and active expert summaries
 - config-driven eval batches that run multiple expert modes, emit per-mode reports, compare completed runs, and preserve recovery-eval settings
@@ -109,6 +111,7 @@ Current evaluation support includes:
 - recovered-wrapper validation that reloads package metadata, checks checkpoint/export compatibility, validates router safetensors, proves native AutoModel loading, and compares original vs recovered safetensors metadata
 - recovery experiment orchestration that runs before/after eval batches around recovery and writes JSON/HTML comparison reports with validation and router-export evidence
 - Markdown model-card generation from wrapper metadata plus eval, router-activity, recovery, router-export, validation, and reproduction-command artifacts
+- agent-friendly preflight JSON reports with readiness checks, blockers, warnings, and suggested next commands
 - smoke assertions that verify tiny HF recipe artifacts, quality metrics, recovered-wrapper validation, and report links
 
 Example eval batch config:

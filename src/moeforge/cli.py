@@ -14,6 +14,7 @@ from .inspectors import inspect_model
 from .materialize import materialize_carve_manifest
 from .model_card import write_model_card
 from .planner import PlanOptions, plan_conversion
+from .preflight import run_preflight
 from .profiling import ProfileOptions, load_calibration_texts, profile_hf_model
 from .recovery_compare import write_recovery_comparison_report
 from .reports import (
@@ -42,6 +43,8 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_plan(args)
         if args.command == "adapters":
             return _cmd_adapters(args)
+        if args.command == "preflight":
+            return _cmd_preflight(args)
         if args.command == "profile":
             return _cmd_profile(args)
         if args.command == "carve-manifest":
@@ -100,6 +103,20 @@ def build_parser() -> argparse.ArgumentParser:
     inspect_parser.add_argument("model", help="Path to a model folder, config.json, GGUF file, or HF model id.")
     inspect_parser.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
     inspect_parser.add_argument("--output", type=Path, help="Write inspection JSON to this path.")
+
+    preflight_parser = subparsers.add_parser(
+        "preflight",
+        help="Check dense-to-MoE workflow readiness and suggest next agent-safe commands.",
+    )
+    preflight_parser.add_argument("--model", help="Dense HF model folder, config path, GGUF file, or HF model id.")
+    preflight_parser.add_argument("--recipe", type=Path, help="Conversion recipe JSON.")
+    preflight_parser.add_argument("--profile", type=Path, help="Activation profile JSON.")
+    preflight_parser.add_argument("--manifest", type=Path, help="Carve manifest JSON.")
+    preflight_parser.add_argument("--artifact", type=Path, help="Carved safetensors artifact.")
+    preflight_parser.add_argument("--wrapper", type=Path, help="Wrapper package directory.")
+    preflight_parser.add_argument("--recovery-config", type=Path, help="Recovery or recovery-experiment JSON config.")
+    preflight_parser.add_argument("--output", type=Path, default=Path("preflight-report.json"), help="Preflight JSON output path.")
+    preflight_parser.add_argument("--print", action="store_true", help="Also print the preflight report JSON.")
 
     plan_parser = subparsers.add_parser("plan", help="Create a dense-to-MoE conversion recipe.")
     plan_parser.add_argument("model", help="Path to a model folder, config.json, GGUF file, or HF model id.")
@@ -408,6 +425,24 @@ def _cmd_inspect(args: argparse.Namespace) -> int:
     if args.json or not args.output:
         print(json.dumps(payload, indent=2, sort_keys=True))
     return 0
+
+
+def _cmd_preflight(args: argparse.Namespace) -> int:
+    report = run_preflight(
+        model=args.model,
+        recipe=args.recipe,
+        profile=args.profile,
+        manifest=args.manifest,
+        artifact=args.artifact,
+        wrapper=args.wrapper,
+        recovery_config=args.recovery_config,
+        output_path=args.output,
+    )
+    if args.print:
+        print(json.dumps(report, indent=2, sort_keys=True))
+    else:
+        print(f"{report['status']}; wrote {args.output}")
+    return 0 if report.get("passed") else 1
 
 
 def _cmd_plan(args: argparse.Namespace) -> int:

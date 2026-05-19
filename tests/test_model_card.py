@@ -43,6 +43,8 @@ def test_write_model_card_summarizes_wrapper_reports_and_commands(tmp_path: Path
     assert "L0:[0,1]" in card
     assert "0:4, 1:4" in card
     assert "0:0.6, 1:0.4" in card
+    assert "0,1:4" in card
+    assert "0.9" in card
     assert "eval warning" in card
     assert "moe-forge eval-hf model --wrapper wrapper --expert-mode learned-router" in card
 
@@ -137,6 +139,9 @@ def _eval_report() -> dict:
                 "top_k": 2,
                 "expert_token_counts": {"0": 4, "1": 4},
                 "mean_selected_weight_by_expert": {"0": 0.6, "1": 0.4},
+                "route_token_counts": {"0,1": 4},
+                "unique_route_count": 1,
+                "selected_expert_entropy": 0.9,
             }
         ],
         "warnings": ["eval warning"],

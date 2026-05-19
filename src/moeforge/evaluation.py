@@ -44,6 +44,12 @@ class EvalActiveExperts:
     top_k: int | None = None
     expert_token_counts: dict[str, int] | None = None
     mean_selected_weight_by_expert: dict[str, float] | None = None
+    route_token_counts: dict[str, int] | None = None
+    unique_route_count: int | None = None
+    selected_expert_entropy: float | None = None
+    mean_selected_probability_mass: float | None = None
+    mean_top1_probability: float | None = None
+    mean_top_margin: float | None = None
 
 
 @dataclass(slots=True)
@@ -233,6 +239,30 @@ def evaluate_hf_dense_vs_carved(
                 {str(key): float(value) for key, value in record["mean_selected_weight_by_expert"].items()}
                 if isinstance(record.get("mean_selected_weight_by_expert"), dict)
                 else None
+            ),
+            route_token_counts=(
+                {str(key): int(value) for key, value in record["route_token_counts"].items()}
+                if isinstance(record.get("route_token_counts"), dict)
+                else None
+            ),
+            unique_route_count=(
+                int(record["unique_route_count"]) if record.get("unique_route_count") is not None else None
+            ),
+            selected_expert_entropy=(
+                float(record["selected_expert_entropy"])
+                if record.get("selected_expert_entropy") is not None
+                else None
+            ),
+            mean_selected_probability_mass=(
+                float(record["mean_selected_probability_mass"])
+                if record.get("mean_selected_probability_mass") is not None
+                else None
+            ),
+            mean_top1_probability=(
+                float(record["mean_top1_probability"]) if record.get("mean_top1_probability") is not None else None
+            ),
+            mean_top_margin=(
+                float(record["mean_top_margin"]) if record.get("mean_top_margin") is not None else None
             ),
         )
         for sample in samples
@@ -613,6 +643,31 @@ def _active_records_for_sample(
                         str(key): float(value)
                         for key, value in dict(summary.get("mean_selected_weight_by_expert", {})).items()
                     },
+                    route_token_counts={
+                        str(key): int(value)
+                        for key, value in dict(summary.get("route_token_counts", {})).items()
+                    },
+                    unique_route_count=(
+                        int(summary["unique_route_count"]) if summary.get("unique_route_count") is not None else None
+                    ),
+                    selected_expert_entropy=(
+                        float(summary["selected_expert_entropy"])
+                        if summary.get("selected_expert_entropy") is not None
+                        else None
+                    ),
+                    mean_selected_probability_mass=(
+                        float(summary["mean_selected_probability_mass"])
+                        if summary.get("mean_selected_probability_mass") is not None
+                        else None
+                    ),
+                    mean_top1_probability=(
+                        float(summary["mean_top1_probability"])
+                        if summary.get("mean_top1_probability") is not None
+                        else None
+                    ),
+                    mean_top_margin=(
+                        float(summary["mean_top_margin"]) if summary.get("mean_top_margin") is not None else None
+                    ),
                 )
             )
         else:

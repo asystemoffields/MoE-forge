@@ -99,8 +99,12 @@ def test_hf_carved_mlp_module_runs_learned_token_router(tmp_path: Path) -> None:
         token_router_top_k=1,
     )
     module = MoEForgeCarvedMLPModule.from_package(package_dir, layer=0)
+    reloaded = MoEForgeCarvedMLPModule.from_package(package_dir, layer=0)
     assert module.token_router_top_k == 1
     assert module.token_router is not None
+    assert reloaded.token_router is not None
+    assert float(module.token_router.weight.abs().max().item()) > 0.0
+    assert torch.allclose(module.token_router.weight, reloaded.token_router.weight)
     module.token_router.bias.data[:] = torch.tensor([-20.0, 20.0, -20.0])
     x = torch.randn(2, 3, 8)
 

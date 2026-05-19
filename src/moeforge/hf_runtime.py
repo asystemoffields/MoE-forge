@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 import json
+import math
 from itertools import chain
 from pathlib import Path
 from typing import Any
@@ -325,7 +326,9 @@ class MoEForgeCarvedMLPModule(_TorchModule):
             return
         hidden_size = self._infer_hidden_size()
         self.token_router = torch.nn.Linear(hidden_size, self.expert_count, bias=True)
-        torch.nn.init.zeros_(self.token_router.weight)
+        generator = torch.Generator(device=self.token_router.weight.device)
+        generator.manual_seed(17_291 + int(self.layer))
+        torch.nn.init.normal_(self.token_router.weight, mean=0.0, std=1e-4, generator=generator)
         torch.nn.init.zeros_(self.token_router.bias)
         weight = router_tensors.get(_router_tensor_name(self.layer, "weight"))
         bias = router_tensors.get(_router_tensor_name(self.layer, "bias"))
@@ -361,6 +364,7 @@ class MoEForgeCarvedMLPModule(_TorchModule):
         token_count = int(top_indices.shape[0] * top_indices.shape[1]) if len(top_indices.shape) >= 2 else int(top_indices.numel())
         expert_token_counts: dict[str, int] = {}
         expert_weight_sums: dict[str, float] = {}
+        route_token_counts: dict[str, int] = {}
         for expert in range(self.expert_count):
             mask = top_indices == expert
             count = int(mask.sum().detach().cpu().item())
@@ -369,6 +373,12 @@ class MoEForgeCarvedMLPModule(_TorchModule):
             weight_sum = float(torch.where(mask, top_values, torch.zeros_like(top_values)).sum().detach().cpu().item())
             expert_token_counts[str(expert)] = count
             expert_weight_sums[str(expert)] = weight_sum
+        for route in top_indices.detach().cpu().reshape(-1, int(top_indices.shape[-1])).tolist():
+            key = ",".join(str(int(expert)) for expert in route)
+            route_token_counts[key] = route_token_counts.get(key, 0) + 1
+        selected_mass = top_values.sum(dim=-1)
+        top1_probability = top_values[..., 0]
+        top_margin = top_values[..., 0] - top_values[..., 1] if top_values.shape[-1] > 1 else None
         return {
             "layer": self.layer,
             "top_k": self.token_router_top_k,
@@ -379,6 +389,12 @@ class MoEForgeCarvedMLPModule(_TorchModule):
                 key: expert_weight_sums[key] / expert_token_counts[key]
                 for key in expert_token_counts
             },
+            "route_token_counts": route_token_counts,
+            "unique_route_count": len(route_token_counts),
+            "selected_expert_entropy": _normalized_entropy(list(expert_token_counts.values())),
+            "mean_selected_probability_mass": float(selected_mass.mean().detach().cpu().item()),
+            "mean_top1_probability": float(top1_probability.mean().detach().cpu().item()),
+            "mean_top_margin": float(top_margin.mean().detach().cpu().item()) if top_margin is not None else None,
         }
 
     def _prefix(self, kind: str, expert: int | None) -> str:
@@ -621,6 +637,15 @@ def _normalized_top_k(value: int | None, *, expert_count: int) -> int | None:
     if top_k <= 0:
         raise MoEForgeHFError("token_router_top_k must be positive")
     return min(top_k, int(expert_count))
+
+
+def _normalized_entropy(counts: list[int]) -> float:
+    total = float(sum(count for count in counts if count > 0))
+    active = [float(count) / total for count in counts if count > 0] if total > 0 else []
+    if len(active) <= 1:
+        return 0.0
+    entropy = -sum(probability * math.log(probability) for probability in active)
+    return float(entropy / math.log(len(active)))
 
 
 def _router_tensor_name(layer: int, field: str) -> str:

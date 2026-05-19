@@ -180,7 +180,12 @@ def test_evaluate_hf_dense_vs_carved_reports_learned_router_tokens(tmp_path: Pat
     assert payload["active_experts"][0]["top_k"] == 1
     assert payload["active_experts"][0]["token_count"] == 4
     assert sum(payload["active_experts"][0]["expert_token_counts"].values()) == 4
+    assert sum(payload["active_experts"][0]["route_token_counts"].values()) == 4
+    assert payload["active_experts"][0]["unique_route_count"] >= 1
+    assert 0.0 <= payload["active_experts"][0]["selected_expert_entropy"] <= 1.0
+    assert payload["active_experts"][0]["mean_top1_probability"] is not None
     assert payload["samples"][0]["active_experts"][0]["mean_selected_weight_by_expert"]
+    assert payload["samples"][0]["active_experts"][0]["route_token_counts"]
     assert payload["layer_attribution"][0]["selected_vs_all_max_abs_error"] > 0.0
 
 
