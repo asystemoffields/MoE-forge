@@ -113,6 +113,59 @@ def test_training_samples_tokenizes_text_file_manifest(tmp_path: Path) -> None:
     assert source["source"]["text_file"]["resolved_path"] == str(text_file)
 
 
+def test_run_recovery_trains_and_exports_token_router(tmp_path: Path) -> None:
+    model_dir = _write_tiny_llama_checkpoint(tmp_path / "tiny-llama")
+    package_dir = _write_wrapper_package(tmp_path, model_dir, token_router_top_k=2)
+    recovery_dir = tmp_path / "router-recovery"
+    config_path = tmp_path / "router-recovery.json"
+    plan_path = tmp_path / "router-recovery-plan.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "teacher_model": str(model_dir),
+                "student_model": str(model_dir),
+                "wrapper": str(package_dir),
+                "output_dir": str(recovery_dir),
+                "train": {"input_ids": [[1, 2, 3, 4], [4, 3, 2, 1]]},
+                "loss": {"teacher_kl_weight": 1.0, "logits_mse_weight": 0.05},
+                "optimizer": {"learning_rate": 0.001},
+                "schedule": {"steps": 2, "batch_size": 1, "save_every_steps": 2},
+                "checkpoints": {"output_dir": "checkpoints"},
+                "trainable": {"experts": False, "shared": False, "router": True, "dense_backbone": False},
+            }
+        ),
+        encoding="utf-8",
+    )
+    plan = write_recovery_plan(config_path=config_path, output_path=plan_path)
+
+    report = run_recovery(plan_path=Path(str(plan["artifacts"]["plan_path"])))
+
+    assert report["promoted_carved_parameters"] == []
+    assert len(report["promoted_router_parameters"]) == 4
+    checkpoint_path = recovery_dir / "checkpoints" / "checkpoint-step-2.json"
+    recovered_dir = tmp_path / "router-recovered-wrapper"
+    export_report = export_recovered_wrapper(
+        checkpoint_path=checkpoint_path,
+        wrapper_dir=package_dir,
+        output_dir=recovered_dir,
+    )
+
+    recovered_config = json.loads((recovered_dir / "moeforge_config.json").read_text(encoding="utf-8"))
+    assert export_report["updated_tensor_count"] == 0
+    assert export_report["updated_router_tensor_count"] == 4
+    assert recovered_config["token_router_path"] == "learned-router.safetensors"
+    assert (recovered_dir / "learned-router.safetensors").exists()
+
+    validation = validate_recovered_wrapper(
+        source_wrapper=package_dir,
+        recovered_wrapper=recovered_dir,
+        checkpoint_path=checkpoint_path,
+        export_report_path=recovered_dir / "recovery-export-report.json",
+    )
+    assert validation["status"] == "validated"
+    assert validation["checkpoint"]["promoted_router_parameter_count"] == 4
+
+
 def test_export_recovered_wrapper_preserves_source_artifact_dtype(tmp_path: Path) -> None:
     model_dir = _write_tiny_llama_checkpoint(tmp_path / "tiny-llama")
     package_dir = _write_wrapper_package(tmp_path, model_dir)
@@ -174,7 +227,7 @@ def test_export_recovered_wrapper_preserves_source_artifact_dtype(tmp_path: Path
     assert validation["tensor_comparison"]["dtype_mismatches"] == []
 
 
-def _write_wrapper_package(tmp_path: Path, model: Path) -> Path:
+def _write_wrapper_package(tmp_path: Path, model: Path, *, token_router_top_k: int | None = None) -> Path:
     manifest_path = _write_manifest(tmp_path, model)
     artifact_dir = tmp_path / "artifact"
     materialize_carve_manifest(manifest_path=manifest_path, output_dir=artifact_dir)
@@ -184,6 +237,7 @@ def _write_wrapper_package(tmp_path: Path, model: Path) -> Path:
         artifact_path=artifact_dir / "carved-experts.safetensors",
         output_dir=package_dir,
         copy_artifact=True,
+        token_router_top_k=token_router_top_k,
     )
     return package_dir
 

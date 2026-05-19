@@ -32,6 +32,7 @@ def test_export_wrapper_package_loads_runtime(tmp_path: Path) -> None:
         router_plan_path=router_path,
         output_dir=package_dir,
         copy_artifact=True,
+        token_router_top_k=1,
     )
     config_path = package_dir / "moeforge_config.json"
 
@@ -40,6 +41,7 @@ def test_export_wrapper_package_loads_runtime(tmp_path: Path) -> None:
     assert (package_dir / "carve-manifest.json").exists()
     assert (package_dir / "router-plan.json").exists()
     assert load_wrapper_config(config_path).layers[0].layer == 0
+    assert load_wrapper_config(config_path).token_router_top_k == 1
     assert load_router_plan(config_path)["default_pool"] == [0, 1]
 
     source = safetensors_torch.load_file(str(model / "model.safetensors"))

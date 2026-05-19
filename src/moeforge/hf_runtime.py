@@ -49,6 +49,7 @@ class HFModuleReplacement:
     device: str
     dtype: str | None
     default_experts: list[int] | None = None
+    token_router_top_k: int | None = None
 
 
 @dataclass(slots=True)
@@ -75,6 +76,8 @@ class MoEForgeConfig(_PretrainedConfig):
         manifest_path: str = "carve-manifest.json",
         artifact_path: str = "carved-experts.safetensors",
         router_plan_path: str | None = None,
+        token_router_top_k: int | None = None,
+        token_router_path: str | None = None,
         activation: str = "silu",
         expert_count: int = 0,
         layers: list[dict[str, Any]] | None = None,
@@ -91,6 +94,8 @@ class MoEForgeConfig(_PretrainedConfig):
         self.manifest_path = manifest_path
         self.artifact_path = artifact_path
         self.router_plan_path = router_plan_path
+        self.token_router_top_k = int(token_router_top_k) if token_router_top_k is not None else None
+        self.token_router_path = token_router_path
         self.activation = activation
         self.expert_count = int(expert_count)
         self.layers = layers or []
@@ -120,6 +125,8 @@ class MoEForgeConfig(_PretrainedConfig):
             manifest_path=wrapper_config.manifest_path,
             artifact_path=wrapper_config.artifact_path,
             router_plan_path=wrapper_config.router_plan_path,
+            token_router_top_k=wrapper_config.token_router_top_k,
+            token_router_path=wrapper_config.token_router_path,
             activation=wrapper_config.activation,
             expert_count=wrapper_config.expert_count,
             layers=[item.to_dict() if hasattr(item, "to_dict") else _layer_to_dict(item) for item in wrapper_config.layers],
@@ -138,6 +145,7 @@ class MoEForgeCarvedMLPModule(_TorchModule):
         layer: int,
         tensors: dict[str, Any],
         router_plan: dict[str, Any] | None,
+        router_tensors: dict[str, Any] | None = None,
     ) -> None:
         if torch is None:  # pragma: no cover - optional dependency boundary
             raise MoEForgeHFError("HF runtime requires torch")
@@ -149,6 +157,8 @@ class MoEForgeCarvedMLPModule(_TorchModule):
         self.activation = config.activation
         self.router_plan = router_plan
         self.default_experts: list[int] | None = None
+        self.token_router_top_k = _normalized_top_k(config.token_router_top_k, expert_count=config.expert_count)
+        self.token_router: Any | None = None
         self._tensor_buffers: dict[str, str] = {}
 
         prefix = f"moe.layers.{layer}.mlp."
@@ -160,6 +170,7 @@ class MoEForgeCarvedMLPModule(_TorchModule):
             self._tensor_buffers[tensor_name] = buffer_name
         if not self._tensor_buffers:
             raise MoEForgeHFError(f"no carved tensors found for layer {layer}")
+        self._init_token_router(router_tensors or {})
 
     @classmethod
     def from_package(
@@ -180,12 +191,18 @@ class MoEForgeCarvedMLPModule(_TorchModule):
         artifact_path = _resolve_package_path(package, resolved_config.artifact_path)
         tensors = load_file(str(artifact_path), device="cpu")
         router_plan = _read_json(_resolve_package_path(package, resolved_config.router_plan_path)) if resolved_config.router_plan_path else None
+        router_tensors = (
+            load_file(str(_resolve_package_path(package, resolved_config.token_router_path)), device="cpu")
+            if resolved_config.token_router_path
+            else None
+        )
         return cls(
             package_dir=package,
             config=resolved_config,
             layer=resolved_layer,
             tensors=tensors,
             router_plan=router_plan,
+            router_tensors=router_tensors,
         )
 
     def forward(
@@ -206,7 +223,12 @@ class MoEForgeCarvedMLPModule(_TorchModule):
                 document_index=document_index,
             )
         if experts is None:
-            experts = self.default_experts or list(range(self.expert_count))
+            if self.default_experts is not None:
+                experts = self.default_experts
+            elif self.token_router is not None:
+                return self.forward_token_router(hidden_states)
+            else:
+                experts = list(range(self.expert_count))
         return self.forward_selected(hidden_states, experts=experts)
 
     def forward_all(self, hidden_states: Any) -> Any:
@@ -215,25 +237,40 @@ class MoEForgeCarvedMLPModule(_TorchModule):
     def forward_selected(self, hidden_states: Any, *, experts: list[int]) -> Any:
         if torch is None:  # pragma: no cover - optional dependency boundary
             raise MoEForgeHFError("HF runtime requires torch")
-        output = None
-        groups: list[tuple[str, int | None]] = [("shared", None)]
-        groups.extend(("expert", expert) for expert in experts)
-        for kind, expert in groups:
+        output = self._group_contribution(hidden_states, kind="shared", expert=None)
+        for expert in experts:
             if expert is not None and (expert < 0 or expert >= self.expert_count):
                 raise MoEForgeHFError(f"expert index {expert} is out of range")
-            prefix = self._prefix(kind, expert)
-            gate = self._tensor(f"{prefix}.gate.weight")
-            up = self._tensor(f"{prefix}.up.weight")
-            down = self._tensor(f"{prefix}.down.weight")
-            if gate is None or up is None or down is None:
+            contribution = self._group_contribution(hidden_states, kind="expert", expert=expert)
+            if contribution is None:
                 continue
-            hidden = self._activate(torch.nn.functional.linear(hidden_states, gate))
-            hidden = hidden * torch.nn.functional.linear(hidden_states, up)
-            contribution = torch.nn.functional.linear(hidden, down)
             output = contribution if output is None else output + contribution
 
         if output is None:
             raise MoEForgeHFError(f"no runnable carved MLP tensors found for layer {self.layer}")
+        return output
+
+    def forward_token_router(self, hidden_states: Any) -> Any:
+        if torch is None:  # pragma: no cover - optional dependency boundary
+            raise MoEForgeHFError("HF runtime requires torch")
+        if self.token_router is None or self.token_router_top_k is None:
+            raise MoEForgeHFError("learned token router is not configured for this layer")
+        logits = self.token_router(hidden_states)
+        probabilities = torch.softmax(logits, dim=-1)
+        top_values, top_indices = torch.topk(probabilities, k=self.token_router_top_k, dim=-1)
+        output = self._group_contribution(hidden_states, kind="shared", expert=None)
+        for expert in range(self.expert_count):
+            mask = top_indices == expert
+            if not bool(mask.any().detach().cpu().item()):
+                continue
+            weight = torch.where(mask, top_values, torch.zeros_like(top_values)).sum(dim=-1)
+            contribution = self._group_contribution(hidden_states, kind="expert", expert=expert)
+            if contribution is None:
+                continue
+            weighted = contribution * weight.unsqueeze(-1)
+            output = weighted if output is None else output + weighted
+        if output is None:
+            raise MoEForgeHFError(f"token router found no runnable carved MLP tensors for layer {self.layer}")
         return output
 
     def forward_with_router(
@@ -280,6 +317,43 @@ class MoEForgeCarvedMLPModule(_TorchModule):
             if expert < 0 or expert >= self.expert_count:
                 raise MoEForgeHFError(f"expert index {expert} is out of range")
         self.default_experts = normalized
+
+    def _init_token_router(self, router_tensors: dict[str, Any]) -> None:
+        if self.token_router_top_k is None:
+            return
+        hidden_size = self._infer_hidden_size()
+        self.token_router = torch.nn.Linear(hidden_size, self.expert_count, bias=True)
+        torch.nn.init.zeros_(self.token_router.weight)
+        torch.nn.init.zeros_(self.token_router.bias)
+        weight = router_tensors.get(_router_tensor_name(self.layer, "weight"))
+        bias = router_tensors.get(_router_tensor_name(self.layer, "bias"))
+        if weight is not None:
+            if list(weight.shape) != list(self.token_router.weight.shape):
+                raise MoEForgeHFError(f"token router weight shape mismatch for layer {self.layer}")
+            self.token_router.weight.data.copy_(weight.to(dtype=self.token_router.weight.dtype))
+        if bias is not None:
+            if list(bias.shape) != list(self.token_router.bias.shape):
+                raise MoEForgeHFError(f"token router bias shape mismatch for layer {self.layer}")
+            self.token_router.bias.data.copy_(bias.to(dtype=self.token_router.bias.dtype))
+
+    def _infer_hidden_size(self) -> int:
+        for tensor_name in sorted(self._tensor_buffers):
+            if tensor_name.endswith(".gate.weight") or tensor_name.endswith(".up.weight"):
+                tensor = self._tensor(tensor_name)
+                if tensor is not None and len(tensor.shape) == 2:
+                    return int(tensor.shape[1])
+        raise MoEForgeHFError(f"could not infer hidden size for token router in layer {self.layer}")
+
+    def _group_contribution(self, hidden_states: Any, *, kind: str, expert: int | None) -> Any | None:
+        prefix = self._prefix(kind, expert)
+        gate = self._tensor(f"{prefix}.gate.weight")
+        up = self._tensor(f"{prefix}.up.weight")
+        down = self._tensor(f"{prefix}.down.weight")
+        if gate is None or up is None or down is None:
+            return None
+        hidden = self._activate(torch.nn.functional.linear(hidden_states, gate))
+        hidden = hidden * torch.nn.functional.linear(hidden_states, up)
+        return torch.nn.functional.linear(hidden, down)
 
     def _prefix(self, kind: str, expert: int | None) -> str:
         if kind == "shared":
@@ -405,6 +479,8 @@ def hf_config_payload_from_wrapper(wrapper_config: WrapperConfig) -> dict[str, A
         "moeforge_wrapper_config": config.moeforge_wrapper_config,
         "router_plan_path": config.router_plan_path,
         "source_model": config.source_model,
+        "token_router_path": config.token_router_path,
+        "token_router_top_k": config.token_router_top_k,
     }
 
 
@@ -450,6 +526,7 @@ def replace_hf_mlp_modules(
                 device=str(device),
                 dtype=str(dtype) if dtype is not None else None,
                 default_experts=layer_default_experts,
+                token_router_top_k=replacement.token_router_top_k,
             )
         )
 
@@ -509,6 +586,19 @@ def _default_experts_for_layer(
         selected = default_experts.get(layer)
         return [int(expert) for expert in selected] if selected is not None else None
     return [int(expert) for expert in default_experts]
+
+
+def _normalized_top_k(value: int | None, *, expert_count: int) -> int | None:
+    if value is None:
+        return None
+    top_k = int(value)
+    if top_k <= 0:
+        raise MoEForgeHFError("token_router_top_k must be positive")
+    return min(top_k, int(expert_count))
+
+
+def _router_tensor_name(layer: int, field: str) -> str:
+    return f"moe.layers.{int(layer)}.mlp.router.{field}"
 
 
 def _resolve_source_model_ref(package_dir: Path, source_model: str) -> str:

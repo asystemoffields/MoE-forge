@@ -32,6 +32,8 @@ class WrapperConfig:
     manifest_path: str
     artifact_path: str
     router_plan_path: str | None
+    token_router_top_k: int | None
+    token_router_path: str | None
     activation: str
     expert_count: int
     layers: list[LayerWrapperConfig]
@@ -51,6 +53,7 @@ def export_wrapper_package(
     activation: str = "silu",
     copy_artifact: bool = False,
     copy_source_model: bool = False,
+    token_router_top_k: int | None = None,
 ) -> WrapperConfig:
     manifest = _read_json(manifest_path)
     if not artifact_path.exists():
@@ -59,6 +62,8 @@ def export_wrapper_package(
         raise WrapperError(f"router plan does not exist: {router_plan_path}")
     if activation not in {"silu", "gelu", "gelu_tanh"}:
         raise WrapperError(f"unsupported activation: {activation}")
+    if token_router_top_k is not None and token_router_top_k <= 0:
+        raise WrapperError("token_router_top_k must be positive")
 
     output_dir.mkdir(parents=True, exist_ok=True)
     local_manifest = output_dir / "carve-manifest.json"
@@ -88,6 +93,8 @@ def export_wrapper_package(
         manifest_path=local_manifest.name,
         artifact_path=artifact_ref,
         router_plan_path=local_router.name if local_router else None,
+        token_router_top_k=token_router_top_k,
+        token_router_path=None,
         activation=activation,
         expert_count=int(manifest.get("experts") or 0),
         layers=_layer_configs(manifest),
@@ -113,6 +120,8 @@ def load_wrapper_config(config_path: Path) -> WrapperConfig:
         manifest_path=str(payload["manifest_path"]),
         artifact_path=str(payload["artifact_path"]),
         router_plan_path=payload.get("router_plan_path"),
+        token_router_top_k=int(payload["token_router_top_k"]) if payload.get("token_router_top_k") is not None else None,
+        token_router_path=payload.get("token_router_path"),
         activation=str(payload.get("activation", "silu")),
         expert_count=int(payload["expert_count"]),
         layers=[
@@ -217,6 +226,7 @@ def _write_wrapper_readme(output_dir: Path, config: WrapperConfig) -> None:
             f"Expert count: `{config.expert_count}`",
             f"Layers: `{', '.join(str(item.layer) for item in config.layers)}`",
             f"Source model: `{config.source_model}`",
+            f"Token router top-k: `{config.token_router_top_k}`",
             "",
             "Load as a Transformers causal LM:",
             "",

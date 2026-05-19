@@ -86,6 +86,30 @@ def test_hf_module_requires_layer_for_multi_layer_package(tmp_path: Path) -> Non
     assert MoEForgeCarvedMLPModule.from_package(package_dir, layer=1).layer == 1
 
 
+def test_hf_carved_mlp_module_runs_learned_token_router(tmp_path: Path) -> None:
+    transformers = pytest.importorskip("transformers")
+    model_dir = _write_tiny_llama_checkpoint(tmp_path / "tiny-llama", transformers=transformers)
+    package_dir = _write_wrapper_package_from_checkpoint(
+        tmp_path,
+        model_dir,
+        layers=[0],
+        intermediate_size=16,
+        shared_channels=4,
+        expert_channels=[4, 4, 4],
+        token_router_top_k=1,
+    )
+    module = MoEForgeCarvedMLPModule.from_package(package_dir, layer=0)
+    assert module.token_router_top_k == 1
+    assert module.token_router is not None
+    module.token_router.bias.data[:] = torch.tensor([-20.0, 20.0, -20.0])
+    x = torch.randn(2, 3, 8)
+
+    routed = module(x)
+    selected = module.forward_selected(x, experts=[1])
+
+    assert torch.allclose(routed, selected, atol=1e-5)
+
+
 def test_replace_hf_mlp_modules_preserves_tiny_llama_outputs(tmp_path: Path) -> None:
     transformers = pytest.importorskip("transformers")
     model_dir = _write_tiny_llama_checkpoint(tmp_path / "tiny-llama", transformers=transformers)
@@ -181,6 +205,7 @@ def _write_wrapper_package_from_checkpoint(
     shared_channels: int,
     expert_channels: list[int],
     copy_source_model: bool = False,
+    token_router_top_k: int | None = None,
 ) -> Path:
     manifest_path = _write_manifest(
         tmp_path,
@@ -199,6 +224,7 @@ def _write_wrapper_package_from_checkpoint(
         output_dir=package_dir,
         copy_artifact=True,
         copy_source_model=copy_source_model,
+        token_router_top_k=token_router_top_k,
     )
     return package_dir
 

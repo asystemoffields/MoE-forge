@@ -59,8 +59,12 @@ def run_recovery(
         trainable=_dict(student_config.get("trainable")),
         torch=torch,
     )
-    if _dict(student_config.get("trainable")).get("router", True):
-        warnings.append("router training is recorded in the plan; the current runner trains carved tensor parameters")
+    router_parameters = _configure_router_parameters(
+        student=student,
+        trainable=_dict(student_config.get("trainable")),
+    )
+    if _dict(student_config.get("trainable")).get("router", True) and not router_parameters:
+        warnings.append("router training was requested, but the wrapper package does not define learned token routers")
     trainable_parameters = [parameter for parameter in student.parameters() if parameter.requires_grad]
     if not trainable_parameters:
         raise RecoveryRunError("recovery-run found no trainable student parameters")
@@ -98,6 +102,7 @@ def run_recovery(
                     optimizer=optimizer,
                     trainable_parameters=trainable_parameters,
                     promoted=promoted,
+                    router_parameters=router_parameters,
                     torch=torch,
                 )
             )
@@ -121,6 +126,7 @@ def run_recovery(
         "train_sample_source": train_sample_source,
         "trainable_parameter_count": _parameter_count(trainable_parameters),
         "promoted_carved_parameters": promoted,
+        "promoted_router_parameters": router_parameters,
         "checkpoints": checkpoint_records,
         "before_after_eval": _before_after_from_plan(plan),
         "warnings": warnings,
@@ -135,6 +141,7 @@ def export_recovered_wrapper(
     wrapper_dir: Path,
     output_dir: Path,
     artifact_name: str = "recovered-carved-experts.safetensors",
+    router_artifact_name: str = "learned-router.safetensors",
 ) -> dict[str, Any]:
     try:
         import torch
@@ -156,32 +163,59 @@ def export_recovered_wrapper(
     tensors = dict(load_file(str(source_artifact), device="cpu"))
     tensor_map = _promoted_tensor_map(checkpoint)
     updated = []
+    router_tensor_map = _promoted_router_tensor_map(checkpoint)
+    source_router_artifact = (
+        _resolve_package_path(wrapper_dir, wrapper_config.token_router_path)
+        if getattr(wrapper_config, "token_router_path", None)
+        else None
+    )
+    router_tensors = (
+        dict(load_file(str(source_router_artifact), device="cpu"))
+        if source_router_artifact is not None and source_router_artifact.exists()
+        else {}
+    )
+    updated_router = []
     for parameter_name, value in trainable_state.items():
         tensor_name = _tensor_name_for_parameter(str(parameter_name), tensor_map)
-        if tensor_name is None:
+        if tensor_name is not None:
+            if tensor_name not in tensors:
+                raise RecoveryRunError(f"checkpoint tensor is not present in wrapper artifact: {tensor_name}")
+            source_tensor = tensors[tensor_name]
+            checkpoint_value = value.detach().cpu()
+            exported_value = checkpoint_value.to(dtype=source_tensor.dtype).contiguous()
+            tensors[tensor_name] = exported_value
+            updated.append(
+                {
+                    "parameter": str(parameter_name),
+                    "tensor": tensor_name,
+                    "shape": list(exported_value.shape),
+                    "source_dtype": _torch_dtype_name(source_tensor),
+                    "checkpoint_dtype": _torch_dtype_name(checkpoint_value),
+                    "export_dtype": _torch_dtype_name(exported_value),
+                    "dtype_cast": bool(checkpoint_value.dtype != exported_value.dtype),
+                }
+            )
             continue
-        if tensor_name not in tensors:
-            raise RecoveryRunError(f"checkpoint tensor is not present in wrapper artifact: {tensor_name}")
-        source_tensor = tensors[tensor_name]
-        checkpoint_value = value.detach().cpu()
-        exported_value = checkpoint_value.to(dtype=source_tensor.dtype).contiguous()
-        tensors[tensor_name] = exported_value
-        updated.append(
-            {
-                "parameter": str(parameter_name),
-                "tensor": tensor_name,
-                "shape": list(exported_value.shape),
-                "source_dtype": _torch_dtype_name(source_tensor),
-                "checkpoint_dtype": _torch_dtype_name(checkpoint_value),
-                "export_dtype": _torch_dtype_name(exported_value),
-                "dtype_cast": bool(checkpoint_value.dtype != exported_value.dtype),
-            }
-        )
-    if not updated:
-        raise RecoveryRunError("recovery checkpoint did not contain carved tensor parameters to export")
+        router_tensor_name = _tensor_name_for_parameter(str(parameter_name), router_tensor_map)
+        if router_tensor_name is not None:
+            checkpoint_value = value.detach().cpu().contiguous()
+            router_tensors[router_tensor_name] = checkpoint_value
+            updated_router.append(
+                {
+                    "parameter": str(parameter_name),
+                    "tensor": router_tensor_name,
+                    "shape": list(checkpoint_value.shape),
+                    "checkpoint_dtype": _torch_dtype_name(checkpoint_value),
+                    "export_dtype": _torch_dtype_name(checkpoint_value),
+                }
+            )
+    if not updated and not updated_router:
+        raise RecoveryRunError("recovery checkpoint did not contain carved tensor or router parameters to export")
 
     _copy_wrapper_scaffold(source_dir=wrapper_dir, output_dir=output_dir, skip_files={source_artifact.name})
     artifact_path = output_dir / artifact_name
+    if artifact_path.exists():
+        artifact_path.unlink()
     save_file(
         tensors,
         str(artifact_path),
@@ -191,9 +225,23 @@ def export_recovered_wrapper(
             "checkpoint": str(checkpoint_path),
         },
     )
+    router_artifact_path = None
+    if updated_router:
+        router_artifact_path = output_dir / router_artifact_name
+        if router_artifact_path.exists():
+            router_artifact_path.unlink()
+        save_file(
+            router_tensors,
+            str(router_artifact_path),
+            metadata={
+                "moe_forge": "learned_token_router",
+                "checkpoint": str(checkpoint_path),
+            },
+        )
     _rewrite_wrapper_artifact_refs(
         output_dir=output_dir,
         artifact_name=artifact_name,
+        token_router_name=router_artifact_name if updated_router else None,
         checkpoint_path=checkpoint_path,
     )
     report = {
@@ -203,8 +251,11 @@ def export_recovered_wrapper(
         "source_wrapper": str(wrapper_dir),
         "output_dir": str(output_dir),
         "artifact_path": str(artifact_path),
+        "router_artifact_path": str(router_artifact_path) if router_artifact_path is not None else None,
         "updated_tensor_count": len(updated),
         "updated_tensors": updated,
+        "updated_router_tensor_count": len(updated_router),
+        "updated_router_tensors": updated_router,
         "wrapper_config": str(output_dir / "moeforge_config.json"),
     }
     _write_json(output_dir / "recovery-export-report.json", report)
@@ -242,8 +293,15 @@ def validate_recovered_wrapper(
 
     source_artifact = _resolve_package_path(source_wrapper, source_config.artifact_path)
     recovered_artifact = _resolve_package_path(recovered_wrapper, recovered_config.artifact_path)
+    recovered_router_artifact = (
+        _resolve_package_path(recovered_wrapper, recovered_config.token_router_path)
+        if recovered_config.token_router_path
+        else None
+    )
     _require_file(source_artifact, label="source wrapper artifact", errors=errors)
     _require_file(recovered_artifact, label="recovered wrapper artifact", errors=errors)
+    if recovered_config.token_router_path:
+        _require_file(recovered_router_artifact, label="recovered token router artifact", errors=errors)
     report["wrapper_configs"] = {
         "source_config": str(source_config_path),
         "recovered_config": str(recovered_config_path),
@@ -251,6 +309,8 @@ def validate_recovered_wrapper(
         "recovered_artifact": str(recovered_artifact),
         "source_artifact_ref": source_config.artifact_path,
         "recovered_artifact_ref": recovered_config.artifact_path,
+        "source_token_router_ref": source_config.token_router_path,
+        "recovered_token_router_ref": recovered_config.token_router_path,
         "source_model": source_config.source_model,
         "recovered_source_model": recovered_config.source_model,
         "source_layers": [item.layer for item in source_config.layers],
@@ -477,6 +537,29 @@ def _promote_carved_parameters(*, student: Any, trainable: dict[str, Any], torch
     return promoted
 
 
+def _configure_router_parameters(*, student: Any, trainable: dict[str, Any]) -> list[dict[str, Any]]:
+    train_router = bool(trainable.get("router", True))
+    records = []
+    for module_name, module in student.named_modules():
+        if not isinstance(module, MoEForgeCarvedMLPModule) or module.token_router is None:
+            continue
+        for parameter_name, parameter in module.token_router.named_parameters():
+            parameter.requires_grad = train_router
+            tensor_name = f"moe.layers.{module.layer}.mlp.router.{parameter_name}"
+            records.append(
+                {
+                    "module": module_name,
+                    "layer": module.layer,
+                    "tensor": tensor_name,
+                    "parameter": f"{module_name}.token_router.{parameter_name}",
+                    "shape": list(parameter.shape),
+                    "trainable": train_router,
+                    "top_k": module.token_router_top_k,
+                }
+            )
+    return [record for record in records if record["trainable"]]
+
+
 def _optimizer(config: dict[str, Any], *, parameters: list[Any], torch: Any) -> Any:
     name = str(config.get("name", "adamw")).lower()
     if name != "adamw":
@@ -509,6 +592,7 @@ def _write_checkpoint(
     optimizer: Any,
     trainable_parameters: list[Any],
     promoted: list[dict[str, Any]],
+    router_parameters: list[dict[str, Any]],
     torch: Any,
 ) -> dict[str, Any]:
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
@@ -537,6 +621,8 @@ def _write_checkpoint(
         "saved_tensor_count": len(trainable_state),
         "promoted_carved_parameter_count": len(promoted),
         "promoted_carved_parameters": promoted,
+        "promoted_router_parameter_count": len(router_parameters),
+        "promoted_router_parameters": router_parameters,
     }
     _write_json(metadata_path, metadata)
     return metadata
@@ -572,6 +658,7 @@ def _wrapper_config_checks(*, source_config: Any, recovered_config: Any) -> dict
         "source_model_match": source_config.source_model == recovered_config.source_model,
         "activation_match": source_config.activation == recovered_config.activation,
         "expert_count_match": source_config.expert_count == recovered_config.expert_count,
+        "token_router_top_k_match": source_config.token_router_top_k == recovered_config.token_router_top_k,
         "layer_signature_match": _layer_signature(source_config.layers) == _layer_signature(recovered_config.layers),
     }
 
@@ -602,6 +689,8 @@ def _export_validation(
         "format": export_report.get("format"),
         "updated_tensor_count": export_report.get("updated_tensor_count"),
         "updated_tensors": export_report.get("updated_tensors") if isinstance(export_report.get("updated_tensors"), list) else [],
+        "updated_router_tensor_count": export_report.get("updated_router_tensor_count", 0),
+        "updated_router_tensors": export_report.get("updated_router_tensors") if isinstance(export_report.get("updated_router_tensors"), list) else [],
     }
     if export_report.get("format") != "moeforge_recovery_export":
         errors.append("recovery export report has unexpected format")
@@ -617,7 +706,10 @@ def _export_validation(
     updated_tensors = checks["updated_tensors"]
     if checks["updated_tensor_count"] != len(updated_tensors):
         errors.append("recovery export report updated_tensor_count does not match updated_tensors length")
-    if not updated_tensors:
+    updated_router_tensors = checks["updated_router_tensors"]
+    if checks["updated_router_tensor_count"] != len(updated_router_tensors):
+        errors.append("recovery export report updated_router_tensor_count does not match updated_router_tensors length")
+    if not updated_tensors and not updated_router_tensors:
         warnings.append("recovery export report did not record updated tensors")
     return checks
 
@@ -633,18 +725,28 @@ def _checkpoint_validation(
     if state_path is not None and not state_path.is_absolute():
         state_path = checkpoint_path.parent / state_path
     promoted = checkpoint.get("promoted_carved_parameters")
+    promoted_router = checkpoint.get("promoted_router_parameters")
     if checkpoint.get("format") != "moeforge_recovery_checkpoint":
         errors.append("recovery checkpoint metadata has unexpected format")
     if state_path is None:
         errors.append("recovery checkpoint metadata is missing state_path")
     elif not state_path.exists():
         errors.append(f"recovery checkpoint state file not found: {state_path}")
-    if not isinstance(promoted, list) or not promoted:
+    if not isinstance(promoted, list):
         errors.append("recovery checkpoint metadata does not include promoted carved parameters")
         promoted = []
+    if not isinstance(promoted_router, list):
+        promoted_router = []
+    if not promoted and not promoted_router:
+        errors.append("recovery checkpoint metadata does not include promoted carved or router parameters")
     promoted_tensors = {
         str(item["tensor"])
         for item in promoted
+        if isinstance(item, dict) and item.get("tensor") is not None
+    }
+    promoted_router_tensors = {
+        str(item["tensor"])
+        for item in promoted_router
         if isinstance(item, dict) and item.get("tensor") is not None
     }
     updated_tensors = set()
@@ -656,6 +758,13 @@ def _checkpoint_validation(
         }
         if promoted_tensors and updated_tensors != promoted_tensors:
             errors.append("recovery export updated tensors do not match checkpoint promoted tensors")
+        updated_router_tensors = {
+            str(item["tensor"])
+            for item in export_report.get("updated_router_tensors", [])
+            if isinstance(item, dict) and item.get("tensor") is not None
+        }
+        if promoted_router_tensors and updated_router_tensors != promoted_router_tensors:
+            errors.append("recovery export updated router tensors do not match checkpoint promoted router tensors")
     return {
         "format": checkpoint.get("format"),
         "step": checkpoint.get("step"),
@@ -663,6 +772,8 @@ def _checkpoint_validation(
         "state_exists": bool(state_path is not None and state_path.exists()),
         "promoted_carved_parameter_count": len(promoted),
         "promoted_tensor_count": len(promoted_tensors),
+        "promoted_router_parameter_count": len(promoted_router),
+        "promoted_router_tensor_count": len(promoted_router_tensors),
         "exported_tensor_count": len(updated_tensors),
     }
 
@@ -824,6 +935,17 @@ def _promoted_tensor_map(checkpoint: dict[str, Any]) -> dict[str, str]:
     return tensor_map
 
 
+def _promoted_router_tensor_map(checkpoint: dict[str, Any]) -> dict[str, str]:
+    promoted = checkpoint.get("promoted_router_parameters")
+    if not isinstance(promoted, list):
+        return {}
+    tensor_map = {}
+    for item in promoted:
+        if isinstance(item, dict) and item.get("parameter") and item.get("tensor"):
+            tensor_map[str(item["parameter"])] = str(item["tensor"])
+    return tensor_map
+
+
 def _tensor_name_for_parameter(parameter_name: str, tensor_map: dict[str, str]) -> str | None:
     for parameter, tensor in tensor_map.items():
         if parameter_name == parameter or parameter_name.endswith(f".{parameter}"):
@@ -847,10 +969,18 @@ def _copy_wrapper_scaffold(*, source_dir: Path, output_dir: Path, skip_files: se
             shutil.copy2(item, destination)
 
 
-def _rewrite_wrapper_artifact_refs(*, output_dir: Path, artifact_name: str, checkpoint_path: Path) -> None:
+def _rewrite_wrapper_artifact_refs(
+    *,
+    output_dir: Path,
+    artifact_name: str,
+    token_router_name: str | None,
+    checkpoint_path: Path,
+) -> None:
     config_path = output_dir / "moeforge_config.json"
     config = json.loads(config_path.read_text(encoding="utf-8"))
     config["artifact_path"] = artifact_name
+    if token_router_name is not None:
+        config["token_router_path"] = token_router_name
     config.setdefault("warnings", [])
     if isinstance(config["warnings"], list):
         config["warnings"].append(f"recovered tensors applied from {checkpoint_path}")
@@ -860,6 +990,8 @@ def _rewrite_wrapper_artifact_refs(*, output_dir: Path, artifact_name: str, chec
     if hf_config_path.exists():
         hf_config = json.loads(hf_config_path.read_text(encoding="utf-8"))
         hf_config["artifact_path"] = artifact_name
+        if token_router_name is not None:
+            hf_config["token_router_path"] = token_router_name
         _write_json(hf_config_path, hf_config)
 
 

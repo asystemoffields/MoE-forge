@@ -30,7 +30,7 @@ moe-forge router-plan --profile profile.json --pool-size 2 --output router-plan.
 moe-forge carve-manifest <model-path> --recipe recipe.json --profile profile.json --output carve-manifest.json
 moe-forge carve-apply --manifest carve-manifest.json --output-dir carved-artifact
 moe-forge carve-verify --manifest carve-manifest.json --artifact carved-artifact/carved-experts.safetensors
-moe-forge wrapper-export --manifest carve-manifest.json --artifact carved-artifact/carved-experts.safetensors --router-plan router-plan.json --copy-source-model --output-dir wrapper
+moe-forge wrapper-export --manifest carve-manifest.json --artifact carved-artifact/carved-experts.safetensors --router-plan router-plan.json --token-router-top-k 2 --copy-source-model --output-dir wrapper
 moe-forge eval-hf <model-path> --wrapper wrapper --output eval-report.json
 moe-forge eval-report-html --input eval-report.json --output eval-report.html
 moe-forge eval-compare eval-all.json eval-router.json --output eval-compare.json --html-output eval-compare.html
@@ -84,6 +84,7 @@ Current wrapper support includes:
 - `moeforge_config.json` package export for carved FFN artifacts
 - native `AutoModelForCausalLM.from_pretrained(...)` loading for installed MoE Forge packages
 - optional router-plan packaging
+- optional learned per-token top-k router modules for native HF wrapper runs
 - reloadable carved layer runtime from wrapper config
 - PyTorch module loading for carved FFN layer parity and selected expert subsets
 - in-place FFN replacement for tiny HF causal-LM parity checks
@@ -102,6 +103,7 @@ Current evaluation support includes:
 - teacher-KL recovery plan artifacts with loss, optimizer, sample, checkpoint, and before/after eval-batch comparison records
 - a tiny recovery runner that consumes recovery plans, computes teacher-KL/logits losses on input-id batches, promotes carved tensors for training, and writes checkpoint metadata
 - recovery checkpoint export that applies trainable tensor state back into a recovered wrapper package
+- router-only recovery export that writes learned router state to `learned-router.safetensors`
 - recovered-wrapper validation that reloads package metadata, checks checkpoint/export compatibility, and compares original vs recovered safetensors metadata
 - recovery experiment orchestration that runs before/after eval batches around recovery and writes JSON/HTML comparison reports with validation evidence
 - smoke assertions that verify tiny HF recipe artifacts, quality metrics, recovered-wrapper validation, and report links

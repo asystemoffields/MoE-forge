@@ -13,7 +13,7 @@ moe-forge inspect $model --json
 moe-forge carve-manifest $model --recipe recipe.json --output carve-manifest.json
 moe-forge carve-apply --manifest carve-manifest.json --output-dir carved-artifact
 moe-forge carve-verify --manifest carve-manifest.json --artifact carved-artifact/carved-experts.safetensors --output carve-verify-report.json
-moe-forge wrapper-export --manifest carve-manifest.json --artifact carved-artifact/carved-experts.safetensors --router-plan router-plan.json --copy-artifact --copy-source-model --output-dir wrapper
+moe-forge wrapper-export --manifest carve-manifest.json --artifact carved-artifact/carved-experts.safetensors --router-plan router-plan.json --token-router-top-k 2 --copy-artifact --copy-source-model --output-dir wrapper
 ```
 
 Copy the template configs and replace `<LOCAL_HF_CHECKPOINT>` with the same checkpoint path:
@@ -40,5 +40,6 @@ Expected lab-notebook artifacts:
 - `recovery-experiment-text-3step/recovery-experiment.html`
 - `recovery-experiment-text-3step/recovered-wrapper-validation.json`
 - `recovery-experiment-text-3step/recovered-wrapper/recovery-export-report.json`
+- `recovery-experiment-text-3step/recovered-wrapper/learned-router.safetensors` when router recovery is enabled
 
 The reports record text-file SHA-256 provenance, active expert selections, latency ratios, teacher-KL and next-token NLL deltas, recovered tensor metadata, checkpoint identity, and recovered-wrapper validation evidence.
