@@ -231,10 +231,9 @@ def _write_wrapper_readme(output_dir: Path, config: WrapperConfig) -> None:
             "Load as a Transformers causal LM:",
             "",
             "```python",
-            "import moeforge",
             "from transformers import AutoModelForCausalLM",
             "",
-            "model = AutoModelForCausalLM.from_pretrained(\".\")",
+            "model = AutoModelForCausalLM.from_pretrained(\".\", trust_remote_code=True)",
             "```",
             "",
         ]
@@ -247,6 +246,36 @@ def _write_hf_config(output_dir: Path, config: WrapperConfig) -> None:
 
     payload = hf_config_payload_from_wrapper(config)
     (output_dir / "config.json").write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    _write_hf_remote_code_stubs(output_dir)
+
+
+def _write_hf_remote_code_stubs(output_dir: Path) -> None:
+    (output_dir / "configuration_moeforge.py").write_text(
+        "\n".join(
+            [
+                '"""Transformers AutoConfig entrypoint for MoE Forge packages."""',
+                "",
+                "from moeforge.hf_runtime import MoEForgeConfig",
+                "",
+                "__all__ = [\"MoEForgeConfig\"]",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (output_dir / "modeling_moeforge.py").write_text(
+        "\n".join(
+            [
+                '"""Transformers AutoModel entrypoint for MoE Forge packages."""',
+                "",
+                "from moeforge.hf_runtime import MoEForgeForCausalLM",
+                "",
+                "__all__ = [\"MoEForgeForCausalLM\"]",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
 
 
 def _read_json(path: Path) -> dict[str, Any]:

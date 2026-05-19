@@ -9,6 +9,7 @@ from typing import Any
 from .adapters import ADAPTERS
 from .batch import run_eval_batch
 from .carve import build_carve_manifest
+from .conversion import ConversionRunOptions, run_conversion
 from .evaluation import evaluate_hf_dense_vs_carved
 from .inspectors import inspect_model
 from .materialize import materialize_carve_manifest
@@ -45,6 +46,8 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_adapters(args)
         if args.command == "preflight":
             return _cmd_preflight(args)
+        if args.command == "convert":
+            return _cmd_convert(args)
         if args.command == "profile":
             return _cmd_profile(args)
         if args.command == "carve-manifest":
@@ -117,6 +120,45 @@ def build_parser() -> argparse.ArgumentParser:
     preflight_parser.add_argument("--recovery-config", type=Path, help="Recovery or recovery-experiment JSON config.")
     preflight_parser.add_argument("--output", type=Path, default=Path("preflight-report.json"), help="Preflight JSON output path.")
     preflight_parser.add_argument("--print", action="store_true", help="Also print the preflight report JSON.")
+
+    convert_parser = subparsers.add_parser(
+        "convert",
+        help="Run a dense-to-MoE conversion into a native HF wrapper package.",
+    )
+    convert_parser.add_argument("model", help="Path to a local HF model folder.")
+    convert_parser.add_argument("--output-dir", type=Path, required=True, help="Run directory for recipe, tensors, wrapper, and reports.")
+    convert_parser.add_argument("--recipe", type=Path, help="Existing conversion recipe JSON. Defaults to planning one.")
+    convert_parser.add_argument("--profile", type=Path, help="Optional activation profile JSON for channel assignment.")
+    convert_parser.add_argument(
+        "--goal",
+        choices=["balanced", "speed", "quality", "tiny", "explore"],
+        default="balanced",
+        help="High-level optimization target when planning a recipe.",
+    )
+    convert_parser.add_argument("--target", choices=["hf", "gguf", "analysis"], default="hf", help="Preferred output target.")
+    convert_parser.add_argument("--hardware", default="auto", help="Hardware hint such as cpu, laptop, cuda, or auto.")
+    convert_parser.add_argument("--experts", type=int, help="Number of routed experts per converted layer.")
+    convert_parser.add_argument("--top-k", type=int, help="Number of routed experts active per token.")
+    convert_parser.add_argument("--shared-ratio", type=float, help="Fraction of FFN channels reserved for shared path.")
+    convert_parser.add_argument("--moe-layers", default="all", help="Layer range, list, or all. Defaults to all.")
+    convert_parser.add_argument("--calibration-samples", type=int, help="Calibration sample count for planned recipes.")
+    convert_parser.add_argument("--recover-steps", type=int, help="Recovery step count for planned recipes.")
+    convert_parser.add_argument("--activation", default="silu", help="FFN activation: silu, gelu, or gelu_tanh.")
+    convert_parser.add_argument("--token-router-top-k", type=int, help="Enable learned per-token top-k routing in the package.")
+    convert_parser.add_argument("--skip-source-model-copy", action="store_true", help="Reference the dense model path instead of copying it into the wrapper.")
+    convert_parser.add_argument("--dry-run", action="store_true", help="Write plan, manifest, preflight, and tensor-shape reports without exporting a wrapper.")
+    convert_parser.add_argument("--eval-smoke", action="store_true", help="Run deterministic dense-vs-carved smoke eval after wrapper export.")
+    convert_parser.add_argument(
+        "--eval-expert-mode",
+        action="append",
+        choices=["all", "default-pool", "router", "learned-router"],
+        help="Expert mode for --eval-smoke. Can be supplied multiple times.",
+    )
+    convert_parser.add_argument("--eval-device", default="cpu", help="Torch device for --eval-smoke.")
+    convert_parser.add_argument("--eval-sequence-length", type=int, default=128, help="Generated smoke input length cap.")
+    convert_parser.add_argument("--eval-atol", type=float, default=1e-5, help="Absolute allclose tolerance for smoke eval.")
+    convert_parser.add_argument("--eval-rtol", type=float, default=1e-5, help="Relative allclose tolerance for smoke eval.")
+    convert_parser.add_argument("--print", action="store_true", help="Also print the conversion report JSON.")
 
     plan_parser = subparsers.add_parser("plan", help="Create a dense-to-MoE conversion recipe.")
     plan_parser.add_argument("model", help="Path to a model folder, config.json, GGUF file, or HF model id.")
@@ -442,6 +484,41 @@ def _cmd_preflight(args: argparse.Namespace) -> int:
         print(json.dumps(report, indent=2, sort_keys=True))
     else:
         print(f"{report['status']}; wrote {args.output}")
+    return 0 if report.get("passed") else 1
+
+
+def _cmd_convert(args: argparse.Namespace) -> int:
+    report = run_conversion(
+        ConversionRunOptions(
+            model=args.model,
+            output_dir=args.output_dir,
+            recipe=args.recipe,
+            profile=args.profile,
+            goal=args.goal,
+            target=args.target,
+            hardware=args.hardware,
+            experts=args.experts,
+            top_k=args.top_k,
+            shared_ratio=args.shared_ratio,
+            moe_layers=args.moe_layers,
+            calibration_samples=args.calibration_samples,
+            recover_steps=args.recover_steps,
+            activation=args.activation,
+            token_router_top_k=args.token_router_top_k,
+            copy_source_model=not args.skip_source_model_copy,
+            dry_run=args.dry_run,
+            eval_smoke=args.eval_smoke,
+            eval_expert_modes=args.eval_expert_mode,
+            eval_device=args.eval_device,
+            eval_sequence_length=args.eval_sequence_length,
+            eval_atol=args.eval_atol,
+            eval_rtol=args.eval_rtol,
+        )
+    )
+    if args.print:
+        print(json.dumps(report, indent=2, sort_keys=True))
+    else:
+        print(f"{report['status']}; wrote {report['artifacts']['convert_report']}")
     return 0 if report.get("passed") else 1
 
 

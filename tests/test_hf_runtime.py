@@ -27,7 +27,10 @@ def test_hf_config_loads_from_wrapper_package(tmp_path: Path) -> None:
 
     assert payload["model_type"] == "moeforge_carved_moe"
     assert payload["architectures"] == ["MoEForgeForCausalLM"]
+    assert payload["auto_map"]["AutoModelForCausalLM"] == "modeling_moeforge.MoEForgeForCausalLM"
     assert payload["moeforge_wrapper_config"] == "moeforge_config.json"
+    assert (package_dir / "configuration_moeforge.py").exists()
+    assert (package_dir / "modeling_moeforge.py").exists()
 
     config = MoEForgeConfig.from_package(package_dir)
 
@@ -176,6 +179,25 @@ def test_auto_model_loads_wrapper_package_as_causal_lm(tmp_path: Path) -> None:
     assert moe.config.source_model == "source-model"
     assert [item.layer for item in moe.replacement_report.replaced] == [0, 1]
     assert torch.allclose(moe_logits, dense_logits, atol=1e-5)
+
+
+def test_auto_model_loads_wrapper_package_with_remote_code_stubs(tmp_path: Path) -> None:
+    transformers = pytest.importorskip("transformers")
+    model_dir = _write_tiny_llama_checkpoint(tmp_path / "tiny-llama", transformers=transformers)
+    package_dir = _write_wrapper_package_from_checkpoint(
+        tmp_path,
+        model_dir,
+        layers=[0, 1],
+        intermediate_size=16,
+        shared_channels=4,
+        expert_channels=[4, 4, 4],
+        copy_source_model=True,
+    )
+
+    moe = transformers.AutoModelForCausalLM.from_pretrained(package_dir, trust_remote_code=True)
+
+    assert isinstance(moe, MoEForgeForCausalLM)
+    assert [item.layer for item in moe.replacement_report.replaced] == [0, 1]
 
 
 def _write_wrapper_package(tmp_path: Path, *, layers: list[int] | None = None) -> Path:

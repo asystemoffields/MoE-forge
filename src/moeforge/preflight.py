@@ -240,6 +240,7 @@ def _next_commands(
     commands = []
     model_ref = model or "<model>"
     if recipe is None:
+        commands.append(f"moe-forge convert {model_ref} --output-dir moeforge-run --moe-layers all")
         commands.append(f"moe-forge plan {model_ref} --moe-layers all --output recipe.json")
     if recipe is not None and manifest is None:
         profile_arg = f" --profile {profile}" if profile is not None else ""

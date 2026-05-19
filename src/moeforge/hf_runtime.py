@@ -512,6 +512,10 @@ def hf_config_payload_from_wrapper(wrapper_config: WrapperConfig) -> dict[str, A
         "adapter_family": config.adapter_family,
         "architectures": ["MoEForgeForCausalLM"],
         "artifact_path": config.artifact_path,
+        "auto_map": {
+            "AutoConfig": "configuration_moeforge.MoEForgeConfig",
+            "AutoModelForCausalLM": "modeling_moeforge.MoEForgeForCausalLM",
+        },
         "expert_count": config.expert_count,
         "layers": config.layers,
         "library_name": "moe-forge",

@@ -21,6 +21,7 @@ The first implementation slice focuses on reliable inspection and recipe plannin
 ## Current Commands
 
 ```powershell
+moe-forge convert C:\models\gemma --output-dir gemma-moe-run --moe-layers all --experts 8 --top-k 2 --token-router-top-k 2 --eval-smoke
 moe-forge adapters
 moe-forge inspect <model-path> --json
 moe-forge preflight --model <model-path> --recipe recipe.json --wrapper wrapper --output preflight-report.json
@@ -85,6 +86,7 @@ Current wrapper support includes:
 - `config.json` export for `MoEForgeConfig.from_package(...)`
 - `moeforge_config.json` package export for carved FFN artifacts
 - native `AutoModelForCausalLM.from_pretrained(...)` loading for installed MoE Forge packages
+- HF `auto_map` loader stubs for `trust_remote_code=True` package workflows
 - optional router-plan packaging
 - optional learned per-token top-k router modules for native HF wrapper runs
 - reloadable carved layer runtime from wrapper config
@@ -93,6 +95,7 @@ Current wrapper support includes:
 
 Current evaluation support includes:
 
+- single-command dense-to-MoE conversion runs that write recipe, manifest, carved tensors, native wrapper package, model card, preflight reports, and optional smoke eval artifacts
 - dense-vs-carved HF logits parity reports
 - per-sample max/mean absolute error and latency
 - per-layer dense/all-expert/selected-expert attribution
