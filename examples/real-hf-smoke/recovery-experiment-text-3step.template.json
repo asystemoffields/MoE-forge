@@ -1,0 +1,40 @@
+{
+  "model": "<LOCAL_HF_CHECKPOINT>",
+  "wrapper": "wrapper",
+  "output_dir": "recovery-experiment-text-3step",
+  "strict_validation": true,
+  "eval": {
+    "expert_modes": ["all", "default-pool", "router"],
+    "text_file": "sample-prompts.txt",
+    "sequence_length": 48,
+    "write_html": true,
+    "recovery_eval": {
+      "enabled": true,
+      "metrics": ["logits_parity", "teacher_kl", "next_token_nll"]
+    }
+  },
+  "train": {
+    "text_file": "sample-prompts.txt",
+    "sequence_length": 48
+  },
+  "recovery": {
+    "loss": {
+      "teacher_kl_weight": 1.0,
+      "logits_mse_weight": 0.05,
+      "temperature": 1.0
+    },
+    "optimizer": {
+      "learning_rate": 0.0002
+    },
+    "schedule": {
+      "steps": 3,
+      "batch_size": 1,
+      "save_every_steps": 1
+    },
+    "trainable": {
+      "experts": true,
+      "shared": false,
+      "dense_backbone": false
+    }
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "format": "moeforge_router_plan",
+  "version": 1,
+  "router": {
+    "type": "document_pool_then_token_router",
+    "expert_count": 3,
+    "pool_size": 1,
+    "default_pool": [2],
+    "document_pools": [],
+    "sources": ["manual-real-hf-smoke"]
+  },
+  "notes": [
+    "Manual default pool for smoke testing selected-subset runtime and report plumbing."
+  ]
+}

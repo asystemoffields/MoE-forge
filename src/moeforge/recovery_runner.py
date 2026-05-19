@@ -162,12 +162,19 @@ def export_recovered_wrapper(
             continue
         if tensor_name not in tensors:
             raise RecoveryRunError(f"checkpoint tensor is not present in wrapper artifact: {tensor_name}")
-        tensors[tensor_name] = value.detach().cpu().contiguous()
+        source_tensor = tensors[tensor_name]
+        checkpoint_value = value.detach().cpu()
+        exported_value = checkpoint_value.to(dtype=source_tensor.dtype).contiguous()
+        tensors[tensor_name] = exported_value
         updated.append(
             {
                 "parameter": str(parameter_name),
                 "tensor": tensor_name,
-                "shape": list(value.shape),
+                "shape": list(exported_value.shape),
+                "source_dtype": _torch_dtype_name(source_tensor),
+                "checkpoint_dtype": _torch_dtype_name(checkpoint_value),
+                "export_dtype": _torch_dtype_name(exported_value),
+                "dtype_cast": bool(checkpoint_value.dtype != exported_value.dtype),
             }
         )
     if not updated:
@@ -795,6 +802,10 @@ def _path_or_none(value: Any) -> Path | None:
     if value is None or str(value).strip() == "":
         return None
     return Path(str(value))
+
+
+def _torch_dtype_name(tensor: Any) -> str:
+    return str(tensor.dtype).replace("torch.", "")
 
 
 def _require_file(path: Path, *, label: str, errors: list[str]) -> None:

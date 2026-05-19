@@ -1,0 +1,3 @@
+Dense-to-MoE conversion should preserve teacher behavior while letting selected expert subsets trade quality for speed.
+Router metadata should be inspectable enough for a lab notebook and light enough for a laptop smoke run.
+Recovery training compares a carved student wrapper against the dense checkpoint with teacher-KL and next-token NLL metrics.

@@ -39,10 +39,11 @@ moe-forge recovery-run --plan recovery-plan.json --output recovery-run-report.js
 moe-forge recovery-export --checkpoint checkpoints/checkpoint-step-100.json --wrapper wrapper --output-dir recovered-wrapper
 moe-forge recovery-validate --source-wrapper wrapper --recovered-wrapper recovered-wrapper --checkpoint checkpoints/checkpoint-step-100.json
 moe-forge recovery-experiment --config recovery-experiment.json --output-dir recovery-experiment
+moe-forge recovery-compare recovery-a.json recovery-b.json --output recovery-compare.json --html-output recovery-compare.html
 moe-forge smoke-assert --run-dir . --output smoke-assertions.json
 ```
 
-For an end-to-end local smoke run, see [examples/tiny-hf-smoke](examples/tiny-hf-smoke).
+For an end-to-end local smoke run, see [examples/tiny-hf-smoke](examples/tiny-hf-smoke). For a tokenizer-backed small real checkpoint recipe, see [examples/real-hf-smoke](examples/real-hf-smoke).
 
 Supported inputs:
 

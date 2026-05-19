@@ -19,6 +19,7 @@ from moeforge.wrapper import export_wrapper_package
 torch = pytest.importorskip("torch")
 pytest.importorskip("safetensors.torch")
 transformers = pytest.importorskip("transformers")
+from safetensors.torch import load_file
 
 
 def test_run_recovery_trains_tiny_wrapper_and_writes_checkpoints(tmp_path: Path) -> None:
@@ -110,6 +111,67 @@ def test_training_samples_tokenizes_text_file_manifest(tmp_path: Path) -> None:
     assert source["kind"] == "text"
     assert source["token_counts"] == [2, 2]
     assert source["source"]["text_file"]["resolved_path"] == str(text_file)
+
+
+def test_export_recovered_wrapper_preserves_source_artifact_dtype(tmp_path: Path) -> None:
+    model_dir = _write_tiny_llama_checkpoint(tmp_path / "tiny-llama")
+    package_dir = _write_wrapper_package(tmp_path, model_dir)
+    source_artifact = package_dir / "carved-experts.safetensors"
+    source_tensors = load_file(str(source_artifact), device="cpu")
+    tensor_name = next(name for name in sorted(source_tensors) if ".experts." in name)
+    source_tensor = source_tensors[tensor_name]
+    state_path = tmp_path / "trainable-state.pt"
+    checkpoint_path = tmp_path / "checkpoint.json"
+    parameter_name = "promoted_expert_weight"
+    checkpoint_tensor = (source_tensor + 0.25).to(torch.float16)
+    torch.save({"trainable_state": {parameter_name: checkpoint_tensor}}, state_path)
+    checkpoint_path.write_text(
+        json.dumps(
+            {
+                "format": "moeforge_recovery_checkpoint",
+                "step": 1,
+                "metadata_path": str(checkpoint_path),
+                "state_path": str(state_path),
+                "trainable_parameter_count": checkpoint_tensor.numel(),
+                "saved_tensor_count": 1,
+                "promoted_carved_parameter_count": 1,
+                "promoted_carved_parameters": [
+                    {
+                        "module": "model.layers.0.mlp",
+                        "layer": 0,
+                        "tensor": tensor_name,
+                        "parameter": parameter_name,
+                        "shape": list(checkpoint_tensor.shape),
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    recovered_dir = tmp_path / "recovered-wrapper"
+    export_report = export_recovered_wrapper(
+        checkpoint_path=checkpoint_path,
+        wrapper_dir=package_dir,
+        output_dir=recovered_dir,
+    )
+
+    recovered = load_file(str(recovered_dir / "recovered-carved-experts.safetensors"), device="cpu")
+    updated = export_report["updated_tensors"][0]
+    assert recovered[tensor_name].dtype == source_tensor.dtype
+    assert updated["source_dtype"] == "float32"
+    assert updated["checkpoint_dtype"] == "float16"
+    assert updated["export_dtype"] == "float32"
+    assert updated["dtype_cast"] is True
+
+    validation = validate_recovered_wrapper(
+        source_wrapper=package_dir,
+        recovered_wrapper=recovered_dir,
+        checkpoint_path=checkpoint_path,
+        export_report_path=recovered_dir / "recovery-export-report.json",
+    )
+    assert validation["status"] == "validated"
+    assert validation["tensor_comparison"]["dtype_mismatches"] == []
 
 
 def _write_wrapper_package(tmp_path: Path, model: Path) -> Path:
