@@ -35,6 +35,8 @@ def test_write_model_card_summarizes_wrapper_reports_and_commands(tmp_path: Path
     assert "`eval-report.json`" in card
     assert "`recovery-report.json`" in card
     assert "`validation-report.json`" in card
+    assert "loaded / 2 layers / 2 routers" in card
+    assert "4/4; missing 0" in card
     assert "### Router Activity" in card
     assert "L0:[0,1]" in card
     assert "0:4, 1:4" in card
@@ -158,6 +160,8 @@ def _validation_report() -> dict:
         "status": "validated",
         "errors": [],
         "reload": {"loaded_layer_count": 2},
+        "native_load": {"status": "loaded", "replaced_layer_count": 2, "token_router_layer_count": 2},
+        "router_tensor_validation": {"tensor_count": 4, "expected_tensor_count": 4, "missing_expected": []},
         "tensor_comparison": {"changed_tensor_count": 12},
     }
 

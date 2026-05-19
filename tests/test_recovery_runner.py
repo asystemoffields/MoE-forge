@@ -164,6 +164,14 @@ def test_run_recovery_trains_and_exports_token_router(tmp_path: Path) -> None:
     )
     assert validation["status"] == "validated"
     assert validation["checkpoint"]["promoted_router_parameter_count"] == 4
+    assert validation["router_tensor_validation"]["tensor_count"] == 4
+    assert validation["router_tensor_validation"]["expected_tensor_count"] == 4
+    assert validation["router_tensor_validation"]["missing_expected"] == []
+    assert validation["reload"]["loaded_layers"][0]["token_router_loaded"] is True
+    assert validation["reload"]["loaded_layers"][0]["token_router_parameter_count"] == 2
+    assert validation["native_load"]["status"] == "loaded"
+    assert validation["native_load"]["replaced_layer_count"] == 2
+    assert validation["native_load"]["token_router_layer_count"] == 2
 
 
 def test_export_recovered_wrapper_preserves_source_artifact_dtype(tmp_path: Path) -> None:
@@ -225,6 +233,8 @@ def test_export_recovered_wrapper_preserves_source_artifact_dtype(tmp_path: Path
     )
     assert validation["status"] == "validated"
     assert validation["tensor_comparison"]["dtype_mismatches"] == []
+    assert validation["native_load"]["status"] == "loaded"
+    assert validation["native_load"]["replaced_layer_count"] == 2
 
 
 def _write_wrapper_package(tmp_path: Path, model: Path, *, token_router_top_k: int | None = None) -> Path:

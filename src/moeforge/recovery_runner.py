@@ -355,11 +355,30 @@ def validate_recovered_wrapper(
             export_report=export_report,
             errors=errors,
         )
+    if recovered_router_artifact is not None and recovered_router_artifact.exists():
+        source_router_artifact = (
+            _resolve_package_path(source_wrapper, source_config.token_router_path)
+            if source_config.token_router_path
+            else None
+        )
+        report["router_tensor_validation"] = _validate_router_tensors(
+            recovered_artifact=recovered_artifact,
+            recovered_router_artifact=recovered_router_artifact,
+            source_router_artifact=source_router_artifact,
+            recovered_config=recovered_config,
+            errors=errors,
+        )
 
     if recovered_artifact.exists() and not errors:
         report["reload"] = _reload_recovered_layers(
             recovered_wrapper=recovered_wrapper,
             errors=errors,
+        )
+    if recovered_artifact.exists() and not errors:
+        report["native_load"] = _reload_native_auto_model(
+            recovered_wrapper=recovered_wrapper,
+            errors=errors,
+            warnings=warnings,
         )
 
     return _finish_validation_report(report=report, output_path=output_path)
@@ -859,25 +878,203 @@ def _compare_wrapper_tensors(
     }
 
 
+def _validate_router_tensors(
+    *,
+    recovered_artifact: Path,
+    recovered_router_artifact: Path,
+    source_router_artifact: Path | None,
+    recovered_config: Any,
+    errors: list[str],
+) -> dict[str, Any]:
+    try:
+        from safetensors.torch import load_file
+    except ImportError as exc:  # pragma: no cover - optional dependency boundary
+        raise RecoveryRunError("router tensor validation requires safetensors") from exc
+
+    recovered_tensors = load_file(str(recovered_router_artifact), device="cpu")
+    carved_tensors = load_file(str(recovered_artifact), device="cpu")
+    source_tensors = (
+        load_file(str(source_router_artifact), device="cpu")
+        if source_router_artifact is not None and source_router_artifact.exists()
+        else {}
+    )
+    expected = _expected_router_tensor_shapes(recovered_config, carved_tensors=carved_tensors)
+    missing_expected = sorted(name for name in expected if name not in recovered_tensors)
+    extra = sorted(set(recovered_tensors) - set(expected))
+    shape_mismatches = []
+    dtype_changes = []
+    changed_tensors = []
+    tensor_metadata = []
+    for name in sorted(recovered_tensors):
+        recovered = recovered_tensors[name]
+        recovered_shape = list(recovered.shape)
+        recovered_dtype = _torch_dtype_name(recovered)
+        expected_shape = expected.get(name)
+        if expected_shape is not None and recovered_shape != expected_shape:
+            shape_mismatches.append(
+                {"tensor": name, "expected_shape": expected_shape, "recovered_shape": recovered_shape}
+            )
+        record = {
+            "tensor": name,
+            "shape": recovered_shape,
+            "dtype": recovered_dtype,
+            "expected": name in expected,
+        }
+        if name in source_tensors:
+            source = source_tensors[name]
+            source_dtype = _torch_dtype_name(source)
+            record["source_dtype"] = source_dtype
+            if source_dtype != recovered_dtype:
+                dtype_changes.append({"tensor": name, "source_dtype": source_dtype, "recovered_dtype": recovered_dtype})
+            if list(source.shape) == recovered_shape:
+                diff = (source - recovered).abs() if source.is_floating_point() else (source != recovered).float()
+                max_abs = float(diff.max().item()) if diff.numel() else 0.0
+                mean_abs = float(diff.mean().item()) if diff.numel() else 0.0
+                record["max_abs_delta"] = max_abs
+                record["mean_abs_delta"] = mean_abs
+                if max_abs != 0.0:
+                    changed_tensors.append(record)
+        tensor_metadata.append(record)
+    for name in missing_expected:
+        errors.append(f"recovered token router artifact is missing expected tensor: {name}")
+    for item in shape_mismatches:
+        errors.append(f"recovered token router tensor shape mismatch: {item['tensor']}")
+    return {
+        "recovered_router_artifact": str(recovered_router_artifact),
+        "source_router_artifact": str(source_router_artifact) if source_router_artifact is not None else None,
+        "source_router_exists": bool(source_router_artifact is not None and source_router_artifact.exists()),
+        "tensor_count": len(recovered_tensors),
+        "expected_tensor_count": len(expected),
+        "missing_expected": missing_expected,
+        "extra_tensors": extra,
+        "shape_mismatches": shape_mismatches,
+        "dtype_changes": dtype_changes,
+        "changed_tensor_count": len(changed_tensors),
+        "changed_tensors": changed_tensors,
+        "tensors": tensor_metadata,
+    }
+
+
+def _expected_router_tensor_shapes(config: Any, *, carved_tensors: dict[str, Any]) -> dict[str, list[int]]:
+    expected = {}
+    for layer in config.layers:
+        hidden_size = _router_hidden_size(layer, carved_tensors=carved_tensors)
+        layer_id = int(layer.layer)
+        expert_count = int(config.expert_count)
+        expected[f"moe.layers.{layer_id}.mlp.router.weight"] = [expert_count, hidden_size]
+        expected[f"moe.layers.{layer_id}.mlp.router.bias"] = [expert_count]
+    return expected
+
+
+def _router_hidden_size(layer: Any, *, carved_tensors: dict[str, Any]) -> int:
+    layer_id = int(layer.layer)
+    candidates = [
+        f"moe.layers.{layer_id}.mlp.shared.gate.weight",
+        f"moe.layers.{layer_id}.mlp.shared.up.weight",
+        f"moe.layers.{layer_id}.mlp.experts.0.gate.weight",
+        f"moe.layers.{layer_id}.mlp.experts.0.up.weight",
+    ]
+    for name in candidates:
+        tensor = carved_tensors.get(name)
+        if tensor is not None and len(tensor.shape) == 2:
+            return int(tensor.shape[1])
+    for name, tensor in sorted(carved_tensors.items()):
+        if name.startswith(f"moe.layers.{layer_id}.mlp.") and name.endswith(".weight") and len(tensor.shape) == 2:
+            return int(tensor.shape[1])
+    raise RecoveryRunError(f"could not infer router hidden size for layer {layer_id}")
+
+
 def _reload_recovered_layers(*, recovered_wrapper: Path, errors: list[str]) -> dict[str, Any]:
     loaded_layers = []
     try:
         config = MoEForgeConfig.from_package(recovered_wrapper)
         for layer in config.layer_ids():
             module = MoEForgeCarvedMLPModule.from_package(recovered_wrapper, layer=layer, config=config)
+            router_parameters = []
+            if module.token_router is not None:
+                for name, parameter in module.token_router.named_parameters():
+                    router_parameters.append(
+                        {
+                            "name": name,
+                            "shape": list(parameter.shape),
+                            "dtype": _torch_dtype_name(parameter),
+                            "requires_grad": bool(parameter.requires_grad),
+                        }
+                    )
             loaded_layers.append(
                 {
                     "layer": layer,
                     "expert_count": module.expert_count,
                     "tensor_buffer_count": len(module._tensor_buffers),
+                    "token_router_top_k": module.token_router_top_k,
+                    "token_router_loaded": module.token_router is not None,
+                    "token_router_parameter_count": len(router_parameters),
+                    "token_router_parameters": router_parameters,
                 }
             )
+            if config.token_router_path and module.token_router is None:
+                errors.append(f"recovered wrapper layer {layer} did not load token router parameters")
     except Exception as exc:
         errors.append(f"could not reload recovered wrapper layers: {exc}")
     return {
         "loaded_layer_count": len(loaded_layers),
         "loaded_layers": loaded_layers,
     }
+
+
+def _reload_native_auto_model(*, recovered_wrapper: Path, errors: list[str], warnings: list[str]) -> dict[str, Any]:
+    try:
+        from transformers import AutoModelForCausalLM
+    except ImportError:
+        warnings.append("native AutoModel reload skipped because transformers is not installed")
+        return {"status": "skipped", "reason": "transformers_not_installed"}
+    try:
+        model = AutoModelForCausalLM.from_pretrained(str(recovered_wrapper))
+        replacement_report = getattr(model, "replacement_report", None)
+        replacement_payload = (
+            replacement_report.to_dict()
+            if replacement_report is not None and hasattr(replacement_report, "to_dict")
+            else {}
+        )
+        replaced = replacement_payload.get("replaced") if isinstance(replacement_payload.get("replaced"), list) else []
+        dense_model = getattr(model, "dense_model", model)
+        config = getattr(model, "config", None)
+        configured_layers = config.layer_ids() if hasattr(config, "layer_ids") else []
+        token_router_layers = []
+        replaced_layers = []
+        for item in replaced:
+            if not isinstance(item, dict):
+                continue
+            layer = int(item.get("layer"))
+            replaced_layers.append(layer)
+            module_path = str(item.get("module_path", ""))
+            module = dense_model.get_submodule(module_path) if module_path else None
+            if module is not None and getattr(module, "token_router", None) is not None:
+                token_router_layers.append(
+                    {
+                        "layer": layer,
+                        "module_path": module_path,
+                        "top_k": getattr(module, "token_router_top_k", None),
+                        "parameter_count": sum(parameter.numel() for parameter in module.token_router.parameters()),
+                    }
+                )
+        if configured_layers and sorted(replaced_layers) != sorted(int(layer) for layer in configured_layers):
+            errors.append("native AutoModel reload did not replace every configured layer")
+        if getattr(config, "token_router_path", None) and len(token_router_layers) != len(replaced_layers):
+            errors.append("native AutoModel reload did not load token routers for every replaced layer")
+        return {
+            "status": "loaded",
+            "model_class": model.__class__.__name__,
+            "dense_model_class": dense_model.__class__.__name__,
+            "configured_layers": [int(layer) for layer in configured_layers],
+            "replaced_layer_count": len(replaced_layers),
+            "replaced_layers": replaced_layers,
+            "token_router_layer_count": len(token_router_layers),
+            "token_router_layers": token_router_layers,
+        }
+    except Exception as exc:
+        errors.append(f"native AutoModel reload failed: {exc}")
+        return {"status": "error", "error": str(exc)}
 
 
 def _updated_tensor_names(export_report: dict[str, Any] | None) -> set[str]:

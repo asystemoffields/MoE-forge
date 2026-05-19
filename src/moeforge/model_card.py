@@ -66,7 +66,7 @@ def build_model_card(
         f"- Adapter family: `{config.adapter_family}`",
         f"- Expert count: `{config.expert_count}`",
         f"- Converted layers: `{_layer_span([layer.layer for layer in config.layers])}`",
-        f"- Token router top-k: `{_text(config.token_router_top_k)}`",
+        f"- Token router top-k: {_config_ref(config.token_router_top_k)}",
         f"- Carved artifact: `{config.artifact_path}`",
         f"- Learned router artifact: {_artifact_ref(config.token_router_path)}",
         f"- Router metadata: {_artifact_ref(config.router_plan_path)}",
@@ -209,8 +209,8 @@ def _validation_section(paths: list[Path], reports: list[dict[str, Any]]) -> lis
     lines = [
         "### Validation",
         "",
-        "| Report | Status | Errors | Reloaded Layers | Changed Tensors |",
-        "| --- | --- | ---: | ---: | ---: |",
+        "| Report | Status | Errors | Reloaded Layers | Native Load | Router Tensors | Changed Tensors |",
+        "| --- | --- | ---: | ---: | --- | --- | ---: |",
     ]
     for path, report in zip(paths, reports):
         reload = _dict(report.get("reload"))
@@ -223,6 +223,8 @@ def _validation_section(paths: list[Path], reports: list[dict[str, Any]]) -> lis
                     _text(report.get("status")),
                     str(len(_list(report.get("errors")))),
                     _text(reload.get("loaded_layer_count")),
+                    _native_load_summary(report),
+                    _router_tensor_summary(report),
                     _text(comparison.get("changed_tensor_count")),
                 ]
             )
@@ -230,6 +232,28 @@ def _validation_section(paths: list[Path], reports: list[dict[str, Any]]) -> lis
         )
     lines.append("")
     return lines
+
+
+def _native_load_summary(report: dict[str, Any]) -> str:
+    native = _dict(report.get("native_load"))
+    if not native:
+        return ""
+    pieces = [_text(native.get("status"))]
+    replaced = native.get("replaced_layer_count")
+    routers = native.get("token_router_layer_count")
+    if replaced is not None:
+        pieces.append(f"{_text(replaced)} layers")
+    if routers is not None:
+        pieces.append(f"{_text(routers)} routers")
+    return " / ".join(piece for piece in pieces if piece)
+
+
+def _router_tensor_summary(report: dict[str, Any]) -> str:
+    router = _dict(report.get("router_tensor_validation"))
+    if not router:
+        return ""
+    missing = len(_list(router.get("missing_expected")))
+    return f"{_text(router.get('tensor_count'))}/{_text(router.get('expected_tensor_count'))}; missing {missing}"
 
 
 def _commands_section(commands: list[str]) -> list[str]:
@@ -358,6 +382,10 @@ def _display_path(path: Path) -> str:
 
 def _artifact_ref(value: str | None) -> str:
     return f"`{value}`" if value else "not attached"
+
+
+def _config_ref(value: Any) -> str:
+    return f"`{value}`" if value is not None and _text(value) else "not configured"
 
 
 def _format_expert_map(value: dict[str, int]) -> str:
