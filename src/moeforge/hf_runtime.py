@@ -34,6 +34,7 @@ class HFModuleReplacement:
     replacement_class: str
     device: str
     dtype: str | None
+    default_experts: list[int] | None = None
 
 
 @dataclass(slots=True)
@@ -133,6 +134,7 @@ class MoEForgeCarvedMLPModule(_TorchModule):
         self.expert_count = config.expert_count
         self.activation = config.activation
         self.router_plan = router_plan
+        self.default_experts: list[int] | None = None
         self._tensor_buffers: dict[str, str] = {}
 
         prefix = f"moe.layers.{layer}.mlp."
@@ -190,7 +192,7 @@ class MoEForgeCarvedMLPModule(_TorchModule):
                 document_index=document_index,
             )
         if experts is None:
-            experts = list(range(self.expert_count))
+            experts = self.default_experts or list(range(self.expert_count))
         return self.forward_selected(hidden_states, experts=experts)
 
     def forward_all(self, hidden_states: Any) -> Any:
@@ -255,6 +257,16 @@ class MoEForgeCarvedMLPModule(_TorchModule):
             document_index=document_index,
         )
 
+    def set_default_experts(self, experts: list[int] | None) -> None:
+        if experts is None:
+            self.default_experts = None
+            return
+        normalized = [int(expert) for expert in experts]
+        for expert in normalized:
+            if expert < 0 or expert >= self.expert_count:
+                raise MoEForgeHFError(f"expert index {expert} is out of range")
+        self.default_experts = normalized
+
     def _prefix(self, kind: str, expert: int | None) -> str:
         if kind == "shared":
             return f"moe.layers.{self.layer}.mlp.shared"
@@ -302,6 +314,7 @@ def replace_hf_mlp_modules(
     *,
     layers: list[int] | None = None,
     config: MoEForgeConfig | None = None,
+    default_experts: dict[int, list[int]] | list[int] | None = None,
 ) -> HFReplacementReport:
     if torch is None:  # pragma: no cover - optional dependency boundary
         raise MoEForgeHFError("HF runtime requires torch")
@@ -321,6 +334,8 @@ def replace_hf_mlp_modules(
         original = getattr(parent, attribute)
         device, dtype = _module_device_dtype(original)
         replacement = MoEForgeCarvedMLPModule.from_package(package, layer=layer, config=resolved_config)
+        layer_default_experts = _default_experts_for_layer(default_experts, layer=layer)
+        replacement.set_default_experts(layer_default_experts)
         if dtype is None:
             replacement = replacement.to(device=device)
         else:
@@ -334,6 +349,7 @@ def replace_hf_mlp_modules(
                 replacement_class=replacement.__class__.__name__,
                 device=str(device),
                 dtype=str(dtype) if dtype is not None else None,
+                default_experts=layer_default_experts,
             )
         )
 
@@ -380,6 +396,19 @@ def _module_device_dtype(module: Any) -> tuple[Any, Any | None]:
         dtype = tensor.dtype if tensor.is_floating_point() else None
         return tensor.device, dtype
     return torch.device("cpu"), None
+
+
+def _default_experts_for_layer(
+    default_experts: dict[int, list[int]] | list[int] | None,
+    *,
+    layer: int,
+) -> list[int] | None:
+    if default_experts is None:
+        return None
+    if isinstance(default_experts, dict):
+        selected = default_experts.get(layer)
+        return [int(expert) for expert in selected] if selected is not None else None
+    return [int(expert) for expert in default_experts]
 
 
 def _has_router_request(

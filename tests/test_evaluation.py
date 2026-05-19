@@ -60,6 +60,27 @@ def test_eval_hf_cli_writes_report(tmp_path: Path) -> None:
     assert payload["sample_count"] == 1
 
 
+def test_evaluate_hf_dense_vs_carved_reports_routed_subset_tradeoff(tmp_path: Path) -> None:
+    model_dir = _write_tiny_llama_checkpoint(tmp_path / "tiny-llama")
+    package_dir = _write_wrapper_package(tmp_path, model_dir, with_router=True)
+
+    report = evaluate_hf_dense_vs_carved(
+        model=model_dir,
+        package_dir=package_dir,
+        input_ids=[[1, 2, 3, 4], [4, 3, 2, 1]],
+        expert_mode="router",
+    )
+    payload = report.to_dict()
+
+    assert not report.passed
+    assert report.max_abs_error > 0.0
+    assert payload["active_experts"][0]["experts"] == [0]
+    assert payload["active_experts"][2]["experts"] == [1]
+    assert payload["samples"][0]["expert_mode"] == "router"
+    assert payload["samples"][0]["active_experts"][0]["mode"] == "router"
+    assert payload["samples"][0]["carved_vs_dense_latency_ratio"] is not None
+
+
 def test_evaluate_hf_dense_vs_carved_validates_input_ids(tmp_path: Path) -> None:
     model_dir = _write_tiny_llama_checkpoint(tmp_path / "tiny-llama")
     package_dir = _write_wrapper_package(tmp_path, model_dir)
@@ -72,14 +93,33 @@ def test_evaluate_hf_dense_vs_carved_validates_input_ids(tmp_path: Path) -> None
         )
 
 
-def _write_wrapper_package(tmp_path: Path, model: Path) -> Path:
+def _write_wrapper_package(tmp_path: Path, model: Path, *, with_router: bool = False) -> Path:
     manifest_path = _write_manifest(tmp_path, model)
     artifact_dir = tmp_path / "artifact"
     materialize_carve_manifest(manifest_path=manifest_path, output_dir=artifact_dir)
     package_dir = tmp_path / "wrapper"
+    router_path = None
+    if with_router:
+        router_path = tmp_path / "router-plan.json"
+        router_path.write_text(
+            json.dumps(
+                {
+                    "strategy": "document_pool_then_token_router",
+                    "expert_count": 3,
+                    "pool_size": 1,
+                    "default_pool": [2],
+                    "documents": [
+                        {"document_index": 0, "text_sha256": "", "experts": [0], "scores": [3.0, 1.0, 0.0]},
+                        {"document_index": 1, "text_sha256": "", "experts": [1], "scores": [0.0, 3.0, 1.0]},
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
     export_wrapper_package(
         manifest_path=manifest_path,
         artifact_path=artifact_dir / "carved-experts.safetensors",
+        router_plan_path=router_path,
         output_dir=package_dir,
         copy_artifact=True,
     )

@@ -79,6 +79,7 @@ Current evaluation support includes:
 - dense-vs-carved HF logits parity reports
 - per-sample max/mean absolute error and latency
 - replacement metadata, active expert records, memory notes, warnings, and package metadata
+- all-expert, default-pool, and document-router expert modes for routed subset tradeoff runs
 
 Current carving support includes:
 

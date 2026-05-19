@@ -6,7 +6,8 @@ from pathlib import Path
 from typing import Any
 
 from .hf_runtime import MoEForgeConfig, replace_hf_mlp_modules
-from .wrapper import load_wrapper_config
+from .router import select_expert_pool
+from .wrapper import load_router_plan, load_wrapper_config
 
 
 class EvaluationError(RuntimeError):
@@ -23,10 +24,14 @@ class EvalSample:
     allclose: bool
     dense_latency_s: float
     carved_latency_s: float
+    carved_vs_dense_latency_ratio: float | None
+    expert_mode: str
+    active_experts: list[dict[str, Any]]
 
 
 @dataclass(slots=True)
 class EvalActiveExperts:
+    sample_index: int
     layer: int
     experts: list[int]
     mode: str
@@ -65,6 +70,7 @@ def evaluate_hf_dense_vs_carved(
     device: str = "cpu",
     atol: float = 1e-5,
     rtol: float = 1e-5,
+    expert_mode: str = "all",
 ) -> EvalReport:
     try:
         import torch
@@ -73,10 +79,13 @@ def evaluate_hf_dense_vs_carved(
         raise EvaluationError("HF evaluation requires torch and transformers") from exc
 
     package_path = Path(package_dir)
-    wrapper_config = load_wrapper_config(package_path / "moeforge_config.json")
+    wrapper_config_path = package_path / "moeforge_config.json"
+    wrapper_config = load_wrapper_config(wrapper_config_path)
     hf_config = MoEForgeConfig.from_package(package_path)
     warnings = list(wrapper_config.warnings)
     target_device = _resolve_device(device, torch)
+    router_plan = load_router_plan(wrapper_config_path) if wrapper_config.router_plan_path else None
+    expert_mode = _normalize_expert_mode(expert_mode)
 
     dense = AutoModelForCausalLM.from_pretrained(str(model)).to(target_device)
     carved = AutoModelForCausalLM.from_pretrained(str(model)).to(target_device)
@@ -98,10 +107,26 @@ def evaluate_hf_dense_vs_carved(
     samples: list[EvalSample] = []
     with torch.no_grad():
         for index, prepared_sample in enumerate(prepared):
+            sample_experts = _active_experts_for_sample(
+                config=hf_config,
+                router_plan=router_plan,
+                sample=prepared_sample,
+                mode=expert_mode,
+            )
             dense_output, dense_latency = _timed_forward(dense, prepared_sample["inputs"], torch=torch)
+            _apply_default_experts(carved, replacements=replacements.to_dict(), experts_by_layer=sample_experts)
             carved_output, carved_latency = _timed_forward(carved, prepared_sample["inputs"], torch=torch)
             diff = (dense_output.logits - carved_output.logits).abs()
             allclose = bool(torch.allclose(dense_output.logits, carved_output.logits, atol=atol, rtol=rtol))
+            active_records = [
+                EvalActiveExperts(
+                    sample_index=index,
+                    layer=layer,
+                    experts=experts,
+                    mode=expert_mode,
+                )
+                for layer, experts in sample_experts.items()
+            ]
             samples.append(
                 EvalSample(
                     index=index,
@@ -112,11 +137,24 @@ def evaluate_hf_dense_vs_carved(
                     allclose=allclose,
                     dense_latency_s=dense_latency,
                     carved_latency_s=carved_latency,
+                    carved_vs_dense_latency_ratio=_latency_ratio(dense_latency, carved_latency),
+                    expert_mode=expert_mode,
+                    active_experts=[asdict(record) for record in active_records],
                 )
             )
 
     max_abs = max((sample.max_abs_error for sample in samples), default=0.0)
     mean_abs = float(sum(sample.mean_abs_error for sample in samples) / len(samples)) if samples else 0.0
+    active_expert_records = [
+        EvalActiveExperts(
+            sample_index=int(sample.index),
+            layer=int(record["layer"]),
+            experts=[int(expert) for expert in record["experts"]],
+            mode=str(record["mode"]),
+        )
+        for sample in samples
+        for record in sample.active_experts
+    ]
     return EvalReport(
         model=str(model),
         package_dir=str(package_path),
@@ -129,7 +167,7 @@ def evaluate_hf_dense_vs_carved(
         atol=atol,
         rtol=rtol,
         replacements=replacements.to_dict(),
-        active_experts=_active_experts(hf_config),
+        active_experts=active_expert_records,
         samples=samples,
         memory=_memory_report(dense=dense, carved=carved, torch=torch, device=target_device),
         package=wrapper_config.to_dict(),
@@ -154,6 +192,8 @@ def _prepare_inputs(
         return [
             {
                 "source": f"input_ids:{index}",
+                "document_index": index,
+                "text": None,
                 "token_count": len(sample),
                 "inputs": {"input_ids": torch.tensor([sample], dtype=torch.long, device=device)},
             }
@@ -176,6 +216,8 @@ def _prepare_inputs(
             prepared.append(
                 {
                     "source": f"text:{index}",
+                    "document_index": index,
+                    "text": text,
                     "token_count": int(encoded["input_ids"].shape[-1]),
                     "inputs": {key: value.to(device) for key, value in encoded.items()},
                 }
@@ -189,6 +231,8 @@ def _prepare_inputs(
     return [
         {
             "source": "generated:smoke_input_ids",
+            "document_index": 0,
+            "text": None,
             "token_count": len(sample),
             "inputs": {"input_ids": torch.tensor([sample], dtype=torch.long, device=device)},
         }
@@ -201,6 +245,50 @@ def _timed_forward(model: Any, inputs: dict[str, Any], *, torch: Any) -> tuple[A
     output = model(**inputs)
     _synchronize_if_cuda(torch)
     return output, time.perf_counter() - start
+
+
+def _normalize_expert_mode(expert_mode: str) -> str:
+    if expert_mode not in {"all", "default-pool", "router"}:
+        raise EvaluationError("expert_mode must be one of: all, default-pool, router")
+    return expert_mode
+
+
+def _active_experts_for_sample(
+    *,
+    config: MoEForgeConfig,
+    router_plan: dict[str, Any] | None,
+    sample: dict[str, Any],
+    mode: str,
+) -> dict[int, list[int]]:
+    if mode == "all":
+        experts = list(range(config.expert_count))
+    else:
+        if router_plan is None:
+            raise EvaluationError(f"expert_mode={mode} requires router metadata in the wrapper package")
+        experts = select_expert_pool(
+            router_plan,
+            text=sample.get("text"),
+            document_index=int(sample.get("document_index", 0)) if mode == "router" else None,
+        )
+    return {int(layer): list(experts) for layer in config.layer_ids()}
+
+
+def _apply_default_experts(
+    model: Any,
+    *,
+    replacements: dict[str, Any],
+    experts_by_layer: dict[int, list[int]],
+) -> None:
+    for item in replacements.get("replaced", []):
+        layer = int(item["layer"])
+        module = model.get_submodule(str(item["module_path"]))
+        module.set_default_experts(experts_by_layer.get(layer))
+
+
+def _latency_ratio(dense_latency: float, carved_latency: float) -> float | None:
+    if dense_latency <= 0:
+        return None
+    return carved_latency / dense_latency
 
 
 def _normalize_input_ids(input_ids: list[list[int]]) -> list[list[int]]:
@@ -226,17 +314,6 @@ def _resolve_device(device: str, torch: Any) -> Any:
     if device == "auto":
         return torch.device("cuda" if torch.cuda.is_available() else "cpu")
     return torch.device(device)
-
-
-def _active_experts(config: MoEForgeConfig) -> list[EvalActiveExperts]:
-    return [
-        EvalActiveExperts(
-            layer=int(layer),
-            experts=list(range(config.expert_count)),
-            mode="all_experts_parity",
-        )
-        for layer in config.layer_ids()
-    ]
 
 
 def _memory_report(*, dense: Any, carved: Any, torch: Any, device: Any) -> dict[str, Any]:

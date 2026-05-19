@@ -173,8 +173,15 @@ def build_parser() -> argparse.ArgumentParser:
     eval_parser.add_argument("--input-ids-json", help="JSON list of token id lists, such as [[1,2,3]].")
     eval_parser.add_argument("--sequence-length", type=int, default=128, help="Tokenizer truncation length or generated smoke input length.")
     eval_parser.add_argument("--device", default="cpu", help="Torch device: cpu, auto, cuda, cuda:0, etc.")
+    eval_parser.add_argument(
+        "--expert-mode",
+        choices=["all", "default-pool", "router"],
+        default="all",
+        help="Experts active in carved FFNs during evaluation.",
+    )
     eval_parser.add_argument("--atol", type=float, default=1e-5, help="Absolute allclose tolerance for logits.")
     eval_parser.add_argument("--rtol", type=float, default=1e-5, help="Relative allclose tolerance for logits.")
+    eval_parser.add_argument("--strict", action="store_true", help="Return non-zero when logits do not pass allclose.")
     eval_parser.add_argument("--output", type=Path, default=Path("moeforge-eval-report.json"), help="Evaluation report output path.")
     eval_parser.add_argument("--print", action="store_true", help="Also print the evaluation report JSON.")
 
@@ -349,6 +356,7 @@ def _cmd_eval_hf(args: argparse.Namespace) -> int:
         device=args.device,
         atol=args.atol,
         rtol=args.rtol,
+        expert_mode=args.expert_mode,
     )
     payload = report.to_dict()
     _write_json(args.output, payload)
@@ -357,7 +365,7 @@ def _cmd_eval_hf(args: argparse.Namespace) -> int:
     else:
         status = "passed" if report.passed else "failed"
         print(f"{status}; wrote {args.output}")
-    return 0 if report.passed else 1
+    return 0 if report.passed or not args.strict else 1
 
 
 def _load_optional_texts(*, text: str | None, text_file: Path | None) -> list[str] | None:
