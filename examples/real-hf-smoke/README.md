@@ -14,6 +14,7 @@ moe-forge carve-manifest $model --recipe recipe.json --output carve-manifest.jso
 moe-forge carve-apply --manifest carve-manifest.json --output-dir carved-artifact
 moe-forge carve-verify --manifest carve-manifest.json --artifact carved-artifact/carved-experts.safetensors --output carve-verify-report.json
 moe-forge wrapper-export --manifest carve-manifest.json --artifact carved-artifact/carved-experts.safetensors --router-plan router-plan.json --token-router-top-k 2 --copy-artifact --copy-source-model --output-dir wrapper
+moe-forge wrapper-export --manifest carve-manifest.json --artifact carved-artifact/carved-experts.safetensors --router-plan router-plan.json --token-router-top-k 2 --copy-artifact --copy-source-model --output-dir wrapper-token-router
 ```
 
 Copy the template configs and replace `<LOCAL_HF_CHECKPOINT>` with the same checkpoint path:
@@ -21,9 +22,12 @@ Copy the template configs and replace `<LOCAL_HF_CHECKPOINT>` with the same chec
 ```powershell
 Copy-Item eval-batch-text.template.json eval-batch-text.json
 Copy-Item recovery-experiment-text-3step.template.json recovery-experiment-text-3step.json
+Copy-Item recovery-experiment-text-learned-router.template.json recovery-experiment-text-learned-router.json
 moe-forge eval-batch --config eval-batch-text.json
 moe-forge recovery-experiment --config recovery-experiment-text-3step.json
+moe-forge recovery-experiment --config recovery-experiment-text-learned-router.json
 moe-forge model-card --wrapper wrapper --eval-report eval-runs-text/eval-learned_router.json --recovery-report recovery-experiment-text-3step/recovery-experiment-report.json --validation-report recovery-experiment-text-3step/recovered-wrapper-validation.json --output MODEL_CARD.md
+moe-forge model-card --wrapper recovery-experiment-text-learned-router/recovered-wrapper --eval-report recovery-experiment-text-learned-router/after/eval-learned_router.json --recovery-report recovery-experiment-text-learned-router/recovery-experiment-report.json --validation-report recovery-experiment-text-learned-router/recovered-wrapper-validation.json --output recovery-experiment-text-learned-router/recovered-wrapper/MODEL_CARD.md
 ```
 
 Check the wrapper through native Transformers loading:
@@ -42,6 +46,8 @@ Expected lab-notebook artifacts:
 - `recovery-experiment-text-3step/recovered-wrapper-validation.json`
 - `recovery-experiment-text-3step/recovered-wrapper/recovery-export-report.json`
 - `recovery-experiment-text-3step/recovered-wrapper/learned-router.safetensors` when router recovery is enabled
+- `recovery-experiment-text-learned-router/recovered-wrapper/learned-router.safetensors`
+- `recovery-experiment-text-learned-router/recovered-wrapper/MODEL_CARD.md`
 - `MODEL_CARD.md`
 
-The reports and model card record text-file SHA-256 provenance, active expert selections, learned-router token counts, latency ratios, teacher-KL and next-token NLL deltas, recovered tensor metadata, checkpoint identity, reproduction commands, and recovered-wrapper validation evidence.
+The reports and model cards record text-file SHA-256 provenance, active expert selections, learned-router token counts, latency ratios, teacher-KL and next-token NLL deltas, recovered tensor metadata, router tensor metadata, checkpoint identity, reproduction commands, and recovered-wrapper validation evidence.

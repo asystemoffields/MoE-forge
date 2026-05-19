@@ -107,8 +107,8 @@ Current evaluation support includes:
 - recovery checkpoint export that applies trainable tensor state back into a recovered wrapper package
 - router-only recovery export that writes learned router state to `learned-router.safetensors`
 - recovered-wrapper validation that reloads package metadata, checks checkpoint/export compatibility, validates router safetensors, proves native AutoModel loading, and compares original vs recovered safetensors metadata
-- recovery experiment orchestration that runs before/after eval batches around recovery and writes JSON/HTML comparison reports with validation evidence
-- Markdown model-card generation from wrapper metadata plus eval, router-activity, recovery, validation, and reproduction-command artifacts
+- recovery experiment orchestration that runs before/after eval batches around recovery and writes JSON/HTML comparison reports with validation and router-export evidence
+- Markdown model-card generation from wrapper metadata plus eval, router-activity, recovery, router-export, validation, and reproduction-command artifacts
 - smoke assertions that verify tiny HF recipe artifacts, quality metrics, recovered-wrapper validation, and report links
 
 Example eval batch config:

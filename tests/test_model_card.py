@@ -35,6 +35,8 @@ def test_write_model_card_summarizes_wrapper_reports_and_commands(tmp_path: Path
     assert "`eval-report.json`" in card
     assert "`recovery-report.json`" in card
     assert "`validation-report.json`" in card
+    assert "Updated Router Tensors" in card
+    assert "| `recovery-report.json` | 3 | 1.2 | 0.7 | 12 | 4 | validated |" in card
     assert "loaded / 2 layers / 2 routers" in card
     assert "4/4; missing 0" in card
     assert "### Router Activity" in card
@@ -149,6 +151,7 @@ def _recovery_report() -> dict:
             "initial_loss": 1.2,
             "final_loss": 0.7,
             "recovered_updated_tensor_count": 12,
+            "recovered_updated_router_tensor_count": 4,
             "recovered_wrapper_validation_status": "validated",
         },
     }

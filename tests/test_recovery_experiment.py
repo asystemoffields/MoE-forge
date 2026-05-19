@@ -50,6 +50,8 @@ def test_run_recovery_experiment_orchestrates_before_recover_after(tmp_path: Pat
     assert report["summary"]["final_loss"] == 0.25
     assert report["summary"]["recovered_wrapper_validation_status"] == "validated"
     assert report["summary"]["recovered_updated_tensor_count"] == 1
+    assert report["summary"]["recovered_updated_router_tensor_count"] == 2
+    assert report["summary"]["recovered_router_tensor_count"] == 2
     assert report["summary"]["improved_modes_by_teacher_kl"] == 2
     assert report["summary"]["total_loss_delta"] == -0.75
     assert report["quality_trends"]["training"]["final_teacher_kl"] == 0.05
@@ -245,6 +247,7 @@ def _fake_exporter(*, checkpoint_path: Path, wrapper_dir: Path, output_dir: Path
         "output_dir": str(output_dir),
         "artifact_path": str(output_dir / "recovered-carved-experts.safetensors"),
         "updated_tensor_count": 1,
+        "updated_router_tensor_count": 2,
     }
     (output_dir / "recovery-export-report.json").write_text(json.dumps(report), encoding="utf-8")
     return report
@@ -284,6 +287,11 @@ def _fake_validator(
                     "mean_abs_delta": 0.05,
                 }
             ],
+        },
+        "router_tensor_validation": {
+            "tensor_count": 2,
+            "expected_tensor_count": 2,
+            "missing_expected": [],
         },
         "reload": {"loaded_layer_count": 1, "loaded_layers": [{"layer": 0}]},
         "errors": [],

@@ -180,11 +180,12 @@ def _recovery_section(paths: list[Path], reports: list[dict[str, Any]]) -> list[
     lines = [
         "### Recovery",
         "",
-        "| Report | Steps | Initial Loss | Final Loss | Updated Tensors | Validation |",
-        "| --- | ---: | ---: | ---: | ---: | --- |",
+        "| Report | Steps | Initial Loss | Final Loss | Updated Tensors | Updated Router Tensors | Validation |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | --- |",
     ]
     for path, report in zip(paths, reports):
         summary = _dict(report.get("summary"))
+        export = _dict(report.get("recovery_export"))
         lines.append(
             "| "
             + " | ".join(
@@ -194,6 +195,11 @@ def _recovery_section(paths: list[Path], reports: list[dict[str, Any]]) -> list[
                     _number(report.get("initial_loss") or summary.get("initial_loss")),
                     _number(report.get("final_loss") or summary.get("final_loss")),
                     _text(summary.get("recovered_updated_tensor_count") or report.get("updated_tensor_count")),
+                    _text(
+                        summary.get("recovered_updated_router_tensor_count")
+                        or export.get("updated_router_tensor_count")
+                        or report.get("updated_router_tensor_count")
+                    ),
                     _text(summary.get("recovered_wrapper_validation_status") or report.get("status")),
                 ]
             )

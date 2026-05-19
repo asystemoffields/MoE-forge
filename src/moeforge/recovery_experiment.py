@@ -136,6 +136,7 @@ def render_recovery_experiment_html(report: dict[str, Any]) -> str:
     comparison = _dict(report.get("before_after_eval"))
     validation = _dict(report.get("recovered_wrapper_validation"))
     tensor_comparison = _dict(validation.get("tensor_comparison"))
+    router_validation = _dict(validation.get("router_tensor_validation"))
     reload_report = _dict(validation.get("reload"))
     artifacts = _dict(report.get("artifacts"))
     before_batch = _dict(report.get("before_eval_batch"))
@@ -229,6 +230,8 @@ def render_recovery_experiment_html(report: dict[str, Any]) -> str:
             _card("Avg NLL Delta", summary.get("average_nll_delta_delta")),
             _card("Validation", validation.get("status")),
             _card("Updated Tensors", tensor_comparison.get("updated_tensor_count")),
+            _card("Updated Router Tensors", summary.get("recovered_updated_router_tensor_count")),
+            _card("Router Tensors", router_validation.get("tensor_count")),
             _card("Changed Tensors", tensor_comparison.get("changed_tensor_count")),
             _card("Reloaded Layers", reload_report.get("loaded_layer_count")),
             "</section>",
@@ -241,6 +244,8 @@ def render_recovery_experiment_html(report: dict[str, Any]) -> str:
                     ("Status", validation.get("status")),
                     ("Source tensors", tensor_comparison.get("source_tensor_count")),
                     ("Recovered tensors", tensor_comparison.get("recovered_tensor_count")),
+                    ("Router tensors", router_validation.get("tensor_count")),
+                    ("Expected router tensors", router_validation.get("expected_tensor_count")),
                     ("Missing tensors", len(tensor_comparison.get("missing_from_recovered", []))),
                     ("Extra tensors", len(tensor_comparison.get("extra_in_recovered", []))),
                 ],
@@ -351,6 +356,7 @@ def _experiment_report(
 ) -> dict[str, Any]:
     comparison_summary = _dict(comparison.get("summary"))
     tensor_comparison = _dict(validation_report.get("tensor_comparison"))
+    router_validation = _dict(validation_report.get("router_tensor_validation"))
     reload_report = _dict(validation_report.get("reload"))
     quality_trends = _quality_trends(comparison=comparison, recovery_report=recovery_report)
     return {
@@ -367,6 +373,9 @@ def _experiment_report(
             "recovered_wrapper_validation_status": validation_report.get("status"),
             "recovered_updated_tensor_count": tensor_comparison.get("updated_tensor_count"),
             "recovered_changed_tensor_count": tensor_comparison.get("changed_tensor_count"),
+            "recovered_updated_router_tensor_count": export_report.get("updated_router_tensor_count"),
+            "recovered_router_tensor_count": router_validation.get("tensor_count"),
+            "recovered_expected_router_tensor_count": router_validation.get("expected_tensor_count"),
             "recovered_reload_layer_count": reload_report.get("loaded_layer_count"),
             "average_teacher_kl_delta": _dict(quality_trends.get("before_after_quality")).get("average_teacher_kl_delta"),
             "average_nll_delta_delta": _dict(quality_trends.get("before_after_quality")).get("average_nll_delta_delta"),
