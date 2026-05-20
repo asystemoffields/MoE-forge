@@ -19,7 +19,7 @@ from .conversion import ConversionRunOptions, run_conversion
 from .corpus import CorpusBuildOptions, build_recovery_corpus
 from .evaluation import evaluate_hf_dense_vs_carved
 from .inspectors import inspect_model
-from .jobs import JobLaunchOptions, launch_background_job
+from .jobs import JobLaunchOptions, ModalCollectOptions, collect_modal_artifact, launch_background_job
 from .materialize import materialize_carve_manifest
 from .model_card import write_model_card
 from .planner import PlanOptions, plan_conversion
@@ -67,6 +67,8 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_corpus_build(args)
         if args.command == "job-launch":
             return _cmd_job_launch(args)
+        if args.command == "job-collect":
+            return _cmd_job_collect(args)
         if args.command == "profile":
             return _cmd_profile(args)
         if args.command == "carve-manifest":
@@ -301,6 +303,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="Command to run after --, such as -- modal run --detach ...",
     )
     job_parser.add_argument("--print", action="store_true", help="Also print the job manifest JSON.")
+
+    collect_parser = subparsers.add_parser(
+        "job-collect",
+        help="Collect the expected Modal artifact from a background job manifest.",
+    )
+    collect_parser.add_argument("--job", type=Path, required=True, help="Background job.json written by job-launch.")
+    collect_parser.add_argument("--output-dir", type=Path, help="Directory for the collected artifact and collect report.")
+    collect_parser.add_argument("--volume", default="moeforge-benchmarks", help="Modal volume name.")
+    collect_parser.add_argument("--remote-path", help="Override the remote artifact path from the spawn manifest.")
+    collect_parser.add_argument("--dry-run", action="store_true", help="Write the collect plan without calling Modal.")
+    collect_parser.add_argument("--print", action="store_true", help="Also print the collect report JSON.")
 
     plan_parser = subparsers.add_parser("plan", help="Create a dense-to-MoE conversion recipe.")
     plan_parser.add_argument("model", help="Path to a model folder, config.json, GGUF file, or HF model id.")
@@ -680,6 +693,23 @@ def _cmd_convert(args: argparse.Namespace) -> int:
     else:
         print(f"{report['status']}; wrote {report['artifacts']['convert_report']}")
     return 0 if report.get("passed") else 1
+
+
+def _cmd_job_collect(args: argparse.Namespace) -> int:
+    report = collect_modal_artifact(
+        ModalCollectOptions(
+            job_manifest=args.job,
+            output_dir=args.output_dir,
+            volume=args.volume,
+            remote_path=args.remote_path,
+            dry_run=args.dry_run,
+        )
+    )
+    if args.print:
+        print(json.dumps(report, indent=2, sort_keys=True))
+    else:
+        print(f"{report['status']}; wrote {report['report_path']}")
+    return 0 if report.get("status") in {"planned", "collected"} else 1
 
 
 def _cmd_publish_check(args: argparse.Namespace) -> int:
