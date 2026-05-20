@@ -512,21 +512,20 @@ def _lighteval_command(
     trust_remote_code: bool = False,
     use_chat_template: bool = False,
 ) -> str:
-    model_args = f"pretrained={model}"
+    model_args = f"model_name={model},batch_size={batch_size}"
     if trust_remote_code:
         model_args += ",trust_remote_code=True"
-    command = (
-        "accelerate launch --num_processes=1 --main_process_port=29600 "
-        '"lighteval/run_evals_accelerate.py" '
-        f'--model_args="{model_args}" '
-        f'--custom_tasks "{custom_tasks_path}" '
-        f"--output_dir {output_dir} "
-        f"--max_samples {max_samples} "
-        f"--override_batch_size {batch_size} "
-        f'--tasks "{task_spec}"'
-    )
     if use_chat_template:
-        command += " --use_chat_template"
+        model_args += ",override_chat_template=True"
+    command = (
+        "lighteval accelerate "
+        f'"{model_args}" '
+        f'"{task_spec}" '
+        f"--custom-tasks {custom_tasks_path} "
+        f"--output-dir {output_dir} "
+        f"--max-samples {max_samples} "
+        "--save-details"
+    )
     return command
 
 

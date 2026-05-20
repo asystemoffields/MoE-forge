@@ -55,6 +55,51 @@ def test_publish_check_accepts_eval_and_recovery_evidence(tmp_path: Path) -> Non
     assert any(check["name"] == "eval.learned-router.teacher_kl" for check in report["checks"])
 
 
+def test_publish_check_requires_benchmark_when_requested(tmp_path: Path) -> None:
+    wrapper = _write_wrapper(tmp_path / "wrapper", token_router_top_k=None)
+    eval_all = _write_eval_report(tmp_path / "eval-all.json", mode="all", max_abs_error=0.0)
+    output = tmp_path / "publish.json"
+
+    status = main(
+        [
+            "publish-check",
+            "--wrapper",
+            str(wrapper),
+            "--eval-report",
+            str(eval_all),
+            "--allow-missing-sparse-eval",
+            "--require-benchmark",
+            "--skip-native-load",
+            "--output",
+            str(output),
+        ]
+    )
+
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert status == 1
+    assert payload["status"] == "blocked"
+    assert any(check["name"] == "benchmark.present" for check in payload["checks"])
+
+
+def test_publish_check_accepts_benchmark_evidence(tmp_path: Path) -> None:
+    wrapper = _write_wrapper(tmp_path / "wrapper", token_router_top_k=None)
+    eval_all = _write_eval_report(tmp_path / "eval-all.json", mode="all", max_abs_error=0.0)
+    benchmark = _write_benchmark_report(tmp_path / "benchmark.json")
+
+    report = check_publish_readiness(
+        wrapper=wrapper,
+        eval_reports=[eval_all],
+        benchmark_report=benchmark,
+        require_benchmark=True,
+        require_sparse_eval=False,
+        trust_remote_code_load=False,
+    )
+
+    assert report["status"] == "ready"
+    assert any(check["name"] == "benchmark.status" for check in report["checks"])
+    assert any(check["name"] == "benchmark.core_retention" for check in report["checks"])
+
+
 def _write_wrapper(path: Path, *, token_router_top_k: int | None, token_router_path: str | None = None) -> Path:
     path.mkdir(parents=True)
     (path / "carved-experts.safetensors").write_bytes(b"placeholder")
@@ -151,6 +196,25 @@ def _write_validation_report(path: Path) -> Path:
                 "status": "validated",
                 "passed": True,
                 "reload": {"loaded_layer_count": 1},
+            }
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
+def _write_benchmark_report(path: Path) -> Path:
+    path.write_text(
+        json.dumps(
+            {
+                "format": "moeforge_benchmark_comparison",
+                "status": "passed",
+                "passed": True,
+                "comparable_task_count": 2,
+                "summary": {
+                    "average_retention": 0.98,
+                    "worst_core_retention": 0.95,
+                },
             }
         ),
         encoding="utf-8",

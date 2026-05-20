@@ -25,6 +25,8 @@ def test_benchmark_plan_writes_smollm_base_commands(tmp_path: Path) -> None:
     assert plan["suite"] == "smollm-base"
     assert "custom|hellaswag|0|1" in plan["task_spec"]
     assert "custom|mmlu_cloze:abstract_algebra|0|1" in plan["task_spec"]
+    assert plan["commands"]["dense"].startswith("lighteval accelerate")
+    assert "model_name=HuggingFaceTB/SmolLM-135M,batch_size=2" in plan["commands"]["dense"]
     assert "trust_remote_code=True" in plan["commands"]["moe"]
     assert plan["release_gate"]["required_artifact"].endswith("benchmark-compare.json")
 
@@ -49,7 +51,7 @@ def test_benchmark_plan_supports_instruct_chat_template(tmp_path: Path) -> None:
     assert status == 0
     assert "lighteval|ifeval|0|0" in plan["task_spec"]
     assert "lighteval|mt_bench|0|0" in plan["task_spec"]
-    assert "--use_chat_template" in plan["commands"]["dense"]
+    assert "override_chat_template=True" in plan["commands"]["dense"]
     assert any(task["priority"] == "chat_core" for task in plan["tasks"])
 
 

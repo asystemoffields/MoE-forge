@@ -16,9 +16,11 @@ def check_publish_readiness(
     wrapper: Path,
     output_path: Path | None = None,
     eval_reports: list[Path] | None = None,
+    benchmark_report: Path | None = None,
     recovery_report: Path | None = None,
     validation_report: Path | None = None,
     require_recovery: bool = False,
+    require_benchmark: bool = False,
     require_sparse_eval: bool = True,
     max_all_expert_error: float = 1e-4,
     max_all_expert_teacher_kl: float = 0.01,
@@ -81,6 +83,27 @@ def check_publish_readiness(
             "Run eval-batch or convert --eval-smoke and include the JSON reports.",
         )
 
+    benchmark_payload = _load_optional_report(benchmark_report, checks=checks, label="benchmark_report")
+    if benchmark_payload is not None:
+        artifacts["benchmark_report"] = str(benchmark_report)
+        _benchmark_checks(checks, benchmark_payload)
+    elif require_benchmark:
+        _check(
+            checks,
+            "benchmark.present",
+            "fail",
+            "no benchmark comparison report was provided",
+            "Run benchmark-plan, execute the dense and MoE tasks, then run benchmark-compare.",
+        )
+    else:
+        _check(
+            checks,
+            "benchmark.present",
+            "warn",
+            "no benchmark comparison report was provided",
+            "Add source-aligned benchmark evidence before a public release.",
+        )
+
     recovery_payload = _load_optional_report(recovery_report, checks=checks, label="recovery_report")
     validation_payload = _load_optional_report(validation_report, checks=checks, label="validation_report")
     if recovery_payload is not None:
@@ -130,6 +153,7 @@ def check_publish_readiness(
             "max_sparse_teacher_kl": max_sparse_teacher_kl,
             "max_sparse_nll_delta": max_sparse_nll_delta,
             "require_recovery": require_recovery,
+            "require_benchmark": require_benchmark,
             "require_sparse_eval": require_sparse_eval,
         },
         "next_actions": _next_actions(checks, wrapper=wrapper),
@@ -234,6 +258,49 @@ def _recovery_checks(checks: list[dict[str, Any]], report: dict[str, Any]) -> No
         _check(checks, "recovery.before_after_quality", "pass", f"compared modes: {quality.get('mode_count')}", None)
     else:
         _check(checks, "recovery.before_after_quality", "warn", "before/after quality comparison is missing", "Run recovery-experiment with eval modes.")
+
+
+def _benchmark_checks(checks: list[dict[str, Any]], report: dict[str, Any]) -> None:
+    if report.get("format") != "moeforge_benchmark_comparison":
+        _check(
+            checks,
+            "benchmark.format",
+            "warn",
+            f"benchmark format: {report.get('format')}",
+            "Use moe-forge benchmark-compare for release evidence.",
+        )
+    if report.get("passed") is True and report.get("status") == "passed":
+        _check(checks, "benchmark.status", "pass", "benchmark comparison passed", None)
+    else:
+        _check(
+            checks,
+            "benchmark.status",
+            "fail",
+            f"benchmark status: {report.get('status')}; passed={report.get('passed')}",
+            "Improve routing/recovery or rerun the source-aligned benchmark before publishing.",
+        )
+    comparable_count = int(report.get("comparable_task_count") or 0)
+    if comparable_count:
+        _check(checks, "benchmark.comparable_tasks", "pass", f"comparable tasks: {comparable_count}", None)
+    else:
+        _check(
+            checks,
+            "benchmark.comparable_tasks",
+            "fail",
+            "no comparable benchmark tasks were found",
+            "Check dense and MoE benchmark JSON paths and task names.",
+        )
+    summary = _dict(report.get("summary"))
+    average_retention = _float(summary.get("average_retention"))
+    worst_core_retention = _float(summary.get("worst_core_retention"))
+    if average_retention is not None:
+        _check(checks, "benchmark.average_retention", "pass", f"average retention={average_retention:.6g}", None)
+    else:
+        _check(checks, "benchmark.average_retention", "warn", "average retention is missing", "Regenerate benchmark-compare.")
+    if worst_core_retention is not None:
+        _check(checks, "benchmark.core_retention", "pass", f"worst core retention={worst_core_retention:.6g}", None)
+    else:
+        _check(checks, "benchmark.core_retention", "warn", "core retention is missing", "Regenerate benchmark-compare.")
 
 
 def _validation_checks(checks: list[dict[str, Any]], report: dict[str, Any]) -> None:

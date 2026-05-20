@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 import shlex
 import subprocess
@@ -113,40 +112,54 @@ def _run_lighteval(
     use_chat_template: bool,
 ) -> dict[str, object]:
     output_dir.mkdir(parents=True, exist_ok=True)
-    model_args = f"pretrained={model}"
+    model_args = f"model_name={model},batch_size={batch_size}"
     if trust_remote_code:
         model_args += ",trust_remote_code=True"
-    command = [
-        "accelerate",
-        "launch",
-        "--num_processes=1",
-        "--main_process_port=29600",
-        str(LIGHTEVAL_ROOT / "lighteval" / "run_evals_accelerate.py"),
-        f"--model_args={model_args}",
-        "--custom_tasks",
-        str(CUSTOM_TASKS),
-        "--output_dir",
-        str(output_dir),
-        "--max_samples",
-        str(max_samples),
-        "--override_batch_size",
-        str(batch_size),
-        "--tasks",
-        task_spec,
-    ]
     if use_chat_template:
-        command.append("--use_chat_template")
+        model_args += ",override_chat_template=True"
+    command = [
+        "python",
+        "-m",
+        "lighteval",
+        "accelerate",
+        model_args,
+        task_spec,
+        "--custom-tasks",
+        str(CUSTOM_TASKS),
+        "--output-dir",
+        str(output_dir),
+        "--max-samples",
+        str(max_samples),
+        "--save-details",
+    ]
     completed = subprocess.run(command, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False)
     (output_dir / "command.txt").write_text(shlex.join(command) + "\n", encoding="utf-8")
     (output_dir / "stdout.txt").write_text(completed.stdout, encoding="utf-8")
     json_outputs = [str(path) for path in output_dir.rglob("*.json")]
+    canonical_results = _write_canonical_results(output_dir)
     return {
         "model": model,
         "output_dir": str(output_dir),
         "returncode": completed.returncode,
         "json_outputs": json_outputs,
+        "canonical_results": str(canonical_results) if canonical_results else None,
         "stdout_path": str(output_dir / "stdout.txt"),
     }
+
+
+def _write_canonical_results(output_dir: Path) -> Path | None:
+    for path in sorted(output_dir.rglob("*.json")):
+        if path.name == "results.json":
+            return path
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if isinstance(payload, dict) and "results" in payload:
+            canonical = output_dir / "results.json"
+            canonical.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+            return canonical
+    return None
 
 
 @app.local_entrypoint()

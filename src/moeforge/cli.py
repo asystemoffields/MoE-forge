@@ -191,9 +191,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     publish_parser.add_argument("--wrapper", type=Path, required=True, help="Wrapper or recovered-wrapper package directory.")
     publish_parser.add_argument("--eval-report", type=Path, action="append", default=[], help="Eval JSON report. Can be supplied multiple times.")
+    publish_parser.add_argument("--benchmark-report", type=Path, help="Benchmark comparison JSON from benchmark-compare.")
     publish_parser.add_argument("--recovery-report", type=Path, help="Recovery experiment JSON report.")
     publish_parser.add_argument("--validation-report", type=Path, help="Recovered-wrapper validation JSON report.")
     publish_parser.add_argument("--require-recovery", action="store_true", help="Require recovery and validation evidence.")
+    publish_parser.add_argument("--require-benchmark", action="store_true", help="Require source-aligned benchmark comparison evidence.")
     publish_parser.add_argument("--allow-missing-sparse-eval", action="store_true", help="Do not block when sparse eval reports are absent.")
     publish_parser.add_argument("--max-all-expert-error", type=float, default=1e-4, help="Max all-expert reconstruction error.")
     publish_parser.add_argument("--max-all-expert-teacher-kl", type=float, default=0.01, help="Max all-expert teacher-KL fallback.")
@@ -636,9 +638,11 @@ def _cmd_publish_check(args: argparse.Namespace) -> int:
         wrapper=args.wrapper,
         output_path=args.output,
         eval_reports=args.eval_report,
+        benchmark_report=args.benchmark_report,
         recovery_report=args.recovery_report,
         validation_report=args.validation_report,
         require_recovery=args.require_recovery,
+        require_benchmark=args.require_benchmark,
         require_sparse_eval=not args.allow_missing_sparse_eval,
         max_all_expert_error=args.max_all_expert_error,
         max_all_expert_teacher_kl=args.max_all_expert_teacher_kl,

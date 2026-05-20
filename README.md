@@ -47,7 +47,7 @@ moe-forge model-card --wrapper wrapper --eval-report eval-report.json --recovery
 moe-forge benchmark-plan --source-model HuggingFaceTB/SmolLM-135M --moe-model recovered-wrapper --suite smollm-base --output benchmark-plan.json
 moe-forge benchmark-plan --source-model HuggingFaceTB/SmolLM-135M-Instruct --moe-model recovered-wrapper --suite smollm-instruct --output instruct-benchmark-plan.json
 moe-forge benchmark-compare --dense-report benchmarks/smollm-base/dense/results.json --moe-report benchmarks/smollm-base/moe/results.json --suite smollm-base --output benchmark-compare.json
-moe-forge publish-check --wrapper recovered-wrapper --eval-report eval-all.json --eval-report eval-learned-router.json --recovery-report recovery-experiment-report.json --validation-report recovered-wrapper-validation.json --require-recovery
+moe-forge publish-check --wrapper recovered-wrapper --eval-report eval-all.json --eval-report eval-learned-router.json --benchmark-report benchmark-compare.json --recovery-report recovery-experiment-report.json --validation-report recovered-wrapper-validation.json --require-recovery --require-benchmark
 moe-forge smoke-assert --run-dir . --output smoke-assertions.json
 ```
 
@@ -122,6 +122,7 @@ Current evaluation support includes:
 - Markdown model-card generation from wrapper metadata plus eval, router-activity, recovery, router-export, validation, and reproduction-command artifacts
 - benchmark-plan artifacts for SmolLM base and instruct checkpoints, using source-aligned LightEval task suites and dense-vs-MoE comparison gates
 - benchmark-compare JSON reports that rank dense retention by average score, core-task drop, and core-task retention
+- publish-readiness checks that can require source-aligned benchmark comparison evidence before release
 - agent-friendly preflight JSON reports with readiness checks, blockers, warnings, and suggested next commands
 - smoke assertions that verify tiny HF recipe artifacts, quality metrics, recovered-wrapper validation, and report links
 
