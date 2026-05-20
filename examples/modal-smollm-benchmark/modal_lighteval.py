@@ -49,11 +49,12 @@ image = (
             "text=text.replace('        frozen=False,\\n',''); "
             "text=text.replace('            output_regex=output_regex,\\n',''); "
             "text=text.replace('            frozen=frozen,\\n',''); "
+            "text += '\\nfor _moeforge_task in TASKS_TABLE:\\n    _moeforge_task.trust_dataset = True\\n'; "
             "p.write_text(text)\""
         ),
         (
             "python -c \"from pathlib import Path; text=Path('/opt/lighteval_tasks.py').read_text(); "
-            "assert 'output_regex' not in text and 'frozen=' not in text\""
+            "assert 'output_regex' not in text and 'frozen=' not in text and '_moeforge_task.trust_dataset = True' in text\""
         ),
         "pip install git+https://github.com/asystemoffields/MoE-forge.git",
     )

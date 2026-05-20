@@ -6,8 +6,8 @@ Use it when local CPU benchmarking is too slow and you want the dense source che
 the MoE wrapper tested with the same LightEval checkout, task list, sample cap, and batch size.
 The runner pins LightEval to `v0.10.0`, pins the Cosmopedia task script to commit
 `38789cac6b7a15047cec96ffd14d4c6dfd9cdf4c`, applies the small task-config compatibility
-patch recorded by `benchmark-plan`, and pins `datasets>=3.5,<4` to match that LightEval
-generation.
+patch recorded by `benchmark-plan`, enables dataset-script trust for the pinned benchmark
+tasks, and pins `datasets>=3.5,<4` to match that LightEval generation.
 
 ## Base SmolLM
 
