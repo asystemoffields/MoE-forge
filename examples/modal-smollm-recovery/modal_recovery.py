@@ -8,6 +8,7 @@ import modal
 
 APP_NAME = "moeforge-smollm-recovery"
 VOLUME_NAME = "moeforge-benchmarks"
+MOEFORGE_REVISION = "3644bf59af2dc4d4b783e9ecffac622533a3e79f"
 REMOTE_ROOT = Path("/vol")
 
 TRAIN_TEXT = """
@@ -47,7 +48,7 @@ image = (
         "protobuf",
         "pillow",
     )
-    .pip_install("git+https://github.com/asystemoffields/MoE-forge.git")
+    .pip_install(f"git+https://github.com/asystemoffields/MoE-forge.git@{MOEFORGE_REVISION}")
 )
 
 
