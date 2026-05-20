@@ -11,6 +11,7 @@ APP_NAME = "moeforge-smollm-recovery"
 VOLUME_NAME = "moeforge-benchmarks"
 MOEFORGE_REVISION = "974eeb06a32290a39d87e4b97c3493b9c9d2ee1a"
 REMOTE_ROOT = Path("/vol")
+REMOTE_ROOT_DISPLAY = "/vol"
 
 
 app = modal.App(APP_NAME)
@@ -222,10 +223,10 @@ def main(
         manifest = {
             "format": "moeforge_modal_recovery_spawn",
             "run_name": run_name,
-            "run_dir": str(REMOTE_ROOT / "recovery-runs" / run_name),
+            "run_dir": f"{REMOTE_ROOT_DISPLAY}/recovery-runs/{run_name}",
             "function_call_id": call.object_id,
             "dashboard_url": call.get_dashboard_url(),
-            "expected_report": str(REMOTE_ROOT / "recovery-runs" / run_name / "modal-recovery-manifest.json"),
+            "expected_report": f"{REMOTE_ROOT_DISPLAY}/recovery-runs/{run_name}/modal-recovery-manifest.json",
         }
     else:
         manifest = run_smollm_recovery.remote(**kwargs)

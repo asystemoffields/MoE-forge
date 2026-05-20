@@ -20,6 +20,7 @@ COSMOPEDIA_TASKS_URL = (
     f"{COSMOPEDIA_TASKS_REVISION}/evaluation/lighteval_tasks.py"
 )
 REMOTE_ROOT = Path("/vol")
+REMOTE_ROOT_DISPLAY = "/vol"
 LIGHTEVAL_ROOT = Path("/opt/lighteval")
 CUSTOM_TASKS = Path("/opt/lighteval_tasks.py")
 
@@ -251,10 +252,10 @@ def main(
         manifest = {
             "format": "moeforge_modal_benchmark_spawn",
             "run_name": run_name,
-            "run_dir": str(REMOTE_ROOT / "runs" / run_name),
+            "run_dir": f"{REMOTE_ROOT_DISPLAY}/runs/{run_name}",
             "function_call_id": call.object_id,
             "dashboard_url": call.get_dashboard_url(),
-            "expected_report": str(REMOTE_ROOT / "runs" / run_name / "modal-benchmark-manifest.json"),
+            "expected_report": f"{REMOTE_ROOT_DISPLAY}/runs/{run_name}/modal-benchmark-manifest.json",
         }
     else:
         manifest = run_benchmark_plan.remote(plan_json, **kwargs)
