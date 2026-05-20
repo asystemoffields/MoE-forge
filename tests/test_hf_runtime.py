@@ -136,6 +136,8 @@ def test_hf_token_router_top_k_all_preserves_carved_sum(tmp_path: Path) -> None:
 
     assert torch.allclose(routed, module.forward_all(x), atol=1e-5)
     assert module.last_router_summary["routing_weighting"] == "binary_straight_through"
+    assert module.last_router_oracle_loss is not None
+    assert module.last_router_balance_loss is not None
 
 
 def test_replace_hf_mlp_modules_preserves_tiny_llama_outputs(tmp_path: Path) -> None:

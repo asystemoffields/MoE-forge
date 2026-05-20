@@ -130,7 +130,12 @@ def test_run_recovery_trains_and_exports_token_router(tmp_path: Path) -> None:
                 "wrapper": str(package_dir),
                 "output_dir": str(recovery_dir),
                 "train": {"input_ids": [[1, 2, 3, 4], [4, 3, 2, 1]]},
-                "loss": {"teacher_kl_weight": 1.0, "logits_mse_weight": 0.05},
+                "loss": {
+                    "teacher_kl_weight": 1.0,
+                    "logits_mse_weight": 0.05,
+                    "router_oracle_weight": 0.1,
+                    "router_balance_weight": 0.01,
+                },
                 "optimizer": {"learning_rate": 0.001},
                 "schedule": {"steps": 2, "batch_size": 1, "save_every_steps": 2},
                 "checkpoints": {"output_dir": "checkpoints"},
@@ -145,6 +150,8 @@ def test_run_recovery_trains_and_exports_token_router(tmp_path: Path) -> None:
 
     assert report["promoted_carved_parameters"] == []
     assert len(report["promoted_router_parameters"]) == 4
+    assert report["losses"][0]["router_oracle"] > 0.0
+    assert report["losses"][0]["router_balance"] >= 0.0
     checkpoint_path = recovery_dir / "checkpoints" / "checkpoint-step-2.json"
     recovered_dir = tmp_path / "router-recovered-wrapper"
     export_report = export_recovered_wrapper(

@@ -78,10 +78,12 @@ def run_recovery(
         with torch.no_grad():
             teacher_logits = teacher(**batch).logits.detach()
         student_logits = student(**batch).logits
+        router_auxiliary_losses = _router_auxiliary_losses(student=student, loss_config=loss_config, torch=torch)
         loss_parts = _loss_parts(
             student_logits=student_logits,
             teacher_logits=teacher_logits,
             loss_config=loss_config,
+            router_auxiliary_losses=router_auxiliary_losses,
             torch=torch,
             F=F,
         )
@@ -394,6 +396,7 @@ def _loss_parts(
     student_logits: Any,
     teacher_logits: Any,
     loss_config: dict[str, Any],
+    router_auxiliary_losses: dict[str, Any] | None,
     torch: Any,
     F: Any,
 ) -> dict[str, Any]:
@@ -408,17 +411,48 @@ def _loss_parts(
     teacher_kl = teacher_kl.clamp_min(0.0)
     logits_mse = F.mse_loss(student_flat, teacher_flat)
     z_loss = torch.logsumexp(student_flat, dim=-1).pow(2).mean()
+    zero = student_logits.sum() * 0.0
+    router_oracle = (router_auxiliary_losses or {}).get("router_oracle", zero)
+    router_balance = (router_auxiliary_losses or {}).get("router_balance", zero)
     total = (
         float(loss_config.get("teacher_kl_weight", 1.0)) * teacher_kl
         + float(loss_config.get("logits_mse_weight", 0.0)) * logits_mse
         + float(loss_config.get("z_loss_weight", 0.0)) * z_loss
+        + float(loss_config.get("router_oracle_weight", 0.0)) * router_oracle
+        + float(loss_config.get("router_balance_weight", 0.0)) * router_balance
     )
     return {
         "total_loss": total,
         "teacher_kl": teacher_kl,
         "logits_mse": logits_mse,
         "z_loss": z_loss,
+        "router_oracle": router_oracle,
+        "router_balance": router_balance,
     }
+
+
+def _router_auxiliary_losses(*, student: Any, loss_config: dict[str, Any], torch: Any) -> dict[str, Any]:
+    oracle_weight = float(loss_config.get("router_oracle_weight", 0.0))
+    balance_weight = float(loss_config.get("router_balance_weight", 0.0))
+    if oracle_weight <= 0.0 and balance_weight <= 0.0:
+        return {}
+    oracle_losses = []
+    balance_losses = []
+    for module in student.modules():
+        if not isinstance(module, MoEForgeCarvedMLPModule):
+            continue
+        oracle_loss = getattr(module, "last_router_oracle_loss", None)
+        balance_loss = getattr(module, "last_router_balance_loss", None)
+        if oracle_weight > 0.0 and oracle_loss is not None:
+            oracle_losses.append(oracle_loss)
+        if balance_weight > 0.0 and balance_loss is not None:
+            balance_losses.append(balance_loss)
+    losses: dict[str, Any] = {}
+    if oracle_losses:
+        losses["router_oracle"] = torch.stack(oracle_losses).mean()
+    if balance_losses:
+        losses["router_balance"] = torch.stack(balance_losses).mean()
+    return losses
 
 
 def _training_samples(
@@ -603,6 +637,8 @@ def _loss_record(*, step: int, loss_parts: dict[str, Any], optimizer: Any) -> di
         "teacher_kl": float(loss_parts["teacher_kl"].detach().cpu().item()),
         "logits_mse": float(loss_parts["logits_mse"].detach().cpu().item()),
         "z_loss": float(loss_parts["z_loss"].detach().cpu().item()),
+        "router_oracle": float(loss_parts["router_oracle"].detach().cpu().item()),
+        "router_balance": float(loss_parts["router_balance"].detach().cpu().item()),
         "learning_rate": float(optimizer.param_groups[0]["lr"]),
     }
 

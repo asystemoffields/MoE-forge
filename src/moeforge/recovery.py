@@ -156,6 +156,7 @@ def _loss_config(config: dict[str, Any]) -> dict[str, Any]:
     loss = {
         "teacher_kl_weight": float(raw.get("teacher_kl_weight", 1.0)),
         "logits_mse_weight": float(raw.get("logits_mse_weight", 0.0)),
+        "router_oracle_weight": float(raw.get("router_oracle_weight", 0.0)),
         "router_balance_weight": float(raw.get("router_balance_weight", 0.01)),
         "z_loss_weight": float(raw.get("z_loss_weight", 0.0)),
         "temperature": float(raw.get("temperature", 1.0)),

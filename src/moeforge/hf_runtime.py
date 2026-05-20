@@ -164,6 +164,8 @@ class MoEForgeCarvedMLPModule(_TorchModule):
         self.token_router_top_k = _normalized_top_k(config.token_router_top_k, expert_count=config.expert_count)
         self.token_router: Any | None = None
         self.last_router_summary: dict[str, Any] | None = None
+        self.last_router_oracle_loss: Any | None = None
+        self.last_router_balance_loss: Any | None = None
         self._tensor_buffers: dict[str, str] = {}
 
         prefix = f"moe.layers.{layer}.mlp."
@@ -264,19 +266,44 @@ class MoEForgeCarvedMLPModule(_TorchModule):
         probabilities = torch.softmax(logits, dim=-1)
         top_values, top_indices = torch.topk(probabilities, k=self.token_router_top_k, dim=-1)
         self.last_router_summary = self._router_summary(top_values=top_values, top_indices=top_indices)
+        self.last_router_oracle_loss = None
+        self.last_router_balance_loss = None
+        collect_aux = bool(self.training and torch.is_grad_enabled())
+        oracle_scores = []
+        if collect_aux:
+            mean_probability = probabilities.reshape(-1, self.expert_count).mean(dim=0)
+            uniform = torch.full_like(mean_probability, 1.0 / float(self.expert_count))
+            self.last_router_balance_loss = torch.nn.functional.mse_loss(mean_probability, uniform)
         output = self._group_contribution(hidden_states, kind="shared", expert=None)
         for expert in range(self.expert_count):
             mask = top_indices == expert
-            if not bool(mask.any().detach().cpu().item()):
+            selected_any = bool(mask.any().detach().cpu().item())
+            if not selected_any and not collect_aux:
                 continue
             selected = mask.any(dim=-1).to(dtype=hidden_states.dtype)
             probability_weight = torch.where(mask, top_values, torch.zeros_like(top_values)).sum(dim=-1)
             routing_weight = selected + probability_weight - probability_weight.detach()
             contribution = self._group_contribution(hidden_states, kind="expert", expert=expert)
             if contribution is None:
+                if collect_aux:
+                    oracle_scores.append(torch.zeros_like(probability_weight))
                 continue
-            weighted = contribution * routing_weight.unsqueeze(-1)
-            output = weighted if output is None else output + weighted
+            if collect_aux:
+                oracle_scores.append(contribution.detach().abs().mean(dim=-1))
+            if selected_any:
+                weighted = contribution * routing_weight.unsqueeze(-1)
+                output = weighted if output is None else output + weighted
+        if collect_aux and oracle_scores:
+            scores = torch.stack(oracle_scores, dim=-1)
+            target_top_k = min(int(self.token_router_top_k), int(scores.shape[-1]))
+            target_indices = torch.topk(scores, k=target_top_k, dim=-1).indices
+            target = torch.zeros_like(probabilities)
+            target.scatter_add_(
+                dim=-1,
+                index=target_indices,
+                src=torch.full_like(target_indices, 1.0 / float(target_top_k), dtype=probabilities.dtype),
+            )
+            self.last_router_oracle_loss = -(target * torch.log_softmax(logits, dim=-1)).sum(dim=-1).mean()
         if output is None:
             raise MoEForgeHFError(f"token router found no runnable carved MLP tensors for layer {self.layer}")
         return output
