@@ -33,7 +33,7 @@ modal run examples/modal-smollm-benchmark/modal_lighteval.py `
 moe-forge job-launch `
   --name smollm-base-v5-benchmark `
   --output-dir outputs/modal-jobs `
-  -- modal run examples/modal-smollm-benchmark/modal_lighteval.py `
+  -- modal run --detach examples/modal-smollm-benchmark/modal_lighteval.py `
     --plan outputs/smollm-moe-release-v5/benchmark-plan.json `
     --run-name smollm-base-v5 `
     --which both `
