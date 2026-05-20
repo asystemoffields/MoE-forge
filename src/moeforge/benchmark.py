@@ -18,7 +18,10 @@ COSMOPEDIA_TASKS_V010_PATCH = (
     "text=text.replace('        frozen=False,\\n',''); "
     "text=text.replace('            output_regex=output_regex,\\n',''); "
     "text=text.replace('            frozen=frozen,\\n',''); "
-    "text += '\\nfor _moeforge_task in TASKS_TABLE:\\n    _moeforge_task.trust_dataset = True\\n'; "
+    "text += '\\nfor _moeforge_task in TASKS_TABLE:\\n"
+    "    _moeforge_task.trust_dataset = True\\n"
+    "    if isinstance(_moeforge_task.prompt_function, str):\\n"
+    "        _moeforge_task.prompt_function = globals()[_moeforge_task.prompt_function]\\n'; "
     "p.write_text(text)\""
 )
 
