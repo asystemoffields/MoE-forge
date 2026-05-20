@@ -19,6 +19,7 @@ from .conversion import ConversionRunOptions, run_conversion
 from .corpus import CorpusBuildOptions, build_recovery_corpus
 from .evaluation import evaluate_hf_dense_vs_carved
 from .inspectors import inspect_model
+from .jobs import JobLaunchOptions, launch_background_job
 from .materialize import materialize_carve_manifest
 from .model_card import write_model_card
 from .planner import PlanOptions, plan_conversion
@@ -64,6 +65,8 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_benchmark_compare(args)
         if args.command == "corpus-build":
             return _cmd_corpus_build(args)
+        if args.command == "job-launch":
+            return _cmd_job_launch(args)
         if args.command == "profile":
             return _cmd_profile(args)
         if args.command == "carve-manifest":
@@ -284,6 +287,20 @@ def build_parser() -> argparse.ArgumentParser:
     corpus_parser.add_argument("--split", default="train", help="Dataset split for sources that do not pin one.")
     corpus_parser.add_argument("--include-answers", action="store_true", help="Include train-split answer text in corpus samples.")
     corpus_parser.add_argument("--print", action="store_true", help="Also print the corpus manifest JSON.")
+
+    job_parser = subparsers.add_parser(
+        "job-launch",
+        help="Launch a long-running command in the background with logs and a manifest.",
+    )
+    job_parser.add_argument("--name", required=True, help="Stable job name used for the output directory.")
+    job_parser.add_argument("--output-dir", type=Path, default=Path("outputs/jobs"), help="Directory for job manifests and logs.")
+    job_parser.add_argument("--dry-run", action="store_true", help="Write the manifest and command script without starting the process.")
+    job_parser.add_argument(
+        "job_command",
+        nargs=argparse.REMAINDER,
+        help="Command to run after --, such as -- modal run --detach ...",
+    )
+    job_parser.add_argument("--print", action="store_true", help="Also print the job manifest JSON.")
 
     plan_parser = subparsers.add_parser("plan", help="Create a dense-to-MoE conversion recipe.")
     plan_parser.add_argument("model", help="Path to a model folder, config.json, GGUF file, or HF model id.")
@@ -959,6 +976,22 @@ def _cmd_corpus_build(args: argparse.Namespace) -> int:
         print(json.dumps(manifest, indent=2, sort_keys=True))
     else:
         print(f"wrote {manifest['output_path']}")
+    return 0
+
+
+def _cmd_job_launch(args: argparse.Namespace) -> int:
+    manifest = launch_background_job(
+        JobLaunchOptions(
+            name=args.name,
+            command=args.job_command,
+            output_dir=args.output_dir,
+            dry_run=args.dry_run,
+        )
+    )
+    if args.print:
+        print(json.dumps(manifest, indent=2, sort_keys=True))
+    else:
+        print(f"{manifest['status']}; wrote {Path(str(manifest['output_dir'])) / 'job.json'}")
     return 0
 
 
