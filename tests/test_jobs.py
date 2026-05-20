@@ -109,10 +109,11 @@ def test_collect_modal_artifact_runs_modal_volume_get(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     calls: list[list[str]] = []
+    runner_kwargs: list[dict[str, object]] = []
 
     def fake_runner(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
-        del kwargs
         calls.append(command)
+        runner_kwargs.append(kwargs)
         Path(command[-1]).write_text("{}", encoding="utf-8")
         return subprocess.CompletedProcess(command, 0, stdout="copied", stderr="")
 
@@ -133,6 +134,8 @@ def test_collect_modal_artifact_runs_modal_volume_get(tmp_path: Path) -> None:
             str(job_dir / "modal-benchmark-manifest.json"),
         ]
     ]
+    assert runner_kwargs[0]["encoding"] == "utf-8"
+    assert runner_kwargs[0]["errors"] == "replace"
 
 
 def test_job_collect_cli_dry_run(tmp_path: Path) -> None:

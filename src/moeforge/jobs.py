@@ -126,7 +126,16 @@ def collect_modal_artifact(
     if not options.dry_run:
         env = os.environ.copy()
         env.setdefault("PYTHONIOENCODING", "utf-8")
-        completed = runner(command, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False, env=env)
+        completed = runner(
+            command,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+            env=env,
+        )
         report["returncode"] = completed.returncode
         report["stdout"] = completed.stdout
         report["stderr"] = completed.stderr
