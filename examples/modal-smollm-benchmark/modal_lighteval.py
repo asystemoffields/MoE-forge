@@ -28,7 +28,7 @@ image = (
         "transformers>=4.45",
         "safetensors>=0.4",
         "accelerate>=0.34",
-        "datasets",
+        "datasets>=3.5,<4",
         "sentencepiece",
         "protobuf",
         "pillow",
