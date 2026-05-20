@@ -22,6 +22,7 @@ def test_launch_background_job_dry_run_records_command(tmp_path: Path) -> None:
     saved = json.loads((tmp_path / "modal-smoke" / "job.json").read_text(encoding="utf-8"))
     assert manifest["status"] == "planned"
     assert manifest["pid"] is None
+    assert saved["env"]["PYTHONIOENCODING"] == "utf-8"
     assert saved["command"] == ["modal", "run", "example.py", "--run-name", "smoke", "--spawn"]
     assert Path(saved["command_path"]).exists()
 

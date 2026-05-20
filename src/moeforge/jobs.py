@@ -36,6 +36,8 @@ def launch_background_job(options: JobLaunchOptions) -> dict[str, Any]:
     manifest_path = job_dir / "job.json"
     command_text = _command_text(command)
     command_path.write_text(command_text, encoding="utf-8")
+    env = os.environ.copy()
+    env.setdefault("PYTHONIOENCODING", "utf-8")
 
     manifest: dict[str, Any] = {
         "format": "moeforge_background_job",
@@ -48,6 +50,7 @@ def launch_background_job(options: JobLaunchOptions) -> dict[str, Any]:
         "stderr": str(stderr_path),
         "dry_run": options.dry_run,
         "pid": None,
+        "env": {"PYTHONIOENCODING": env["PYTHONIOENCODING"]},
         "status": "planned" if options.dry_run else "launched",
         "notes": [
             "Use this manifest to reconnect command output with remote Modal artifacts.",
@@ -64,6 +67,7 @@ def launch_background_job(options: JobLaunchOptions) -> dict[str, Any]:
                 stderr=stderr,
                 stdin=subprocess.DEVNULL,
                 cwd=Path.cwd(),
+                env=env,
                 close_fds=True,
                 start_new_session=os.name != "nt",
                 creationflags=_windows_creation_flags(),
