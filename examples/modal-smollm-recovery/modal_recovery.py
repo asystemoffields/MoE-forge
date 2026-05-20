@@ -11,26 +11,6 @@ VOLUME_NAME = "moeforge-benchmarks"
 MOEFORGE_REVISION = "3644bf5e8e800de9c9d8288a6a7646145bb4c45f"
 REMOTE_ROOT = Path("/vol")
 
-TRAIN_TEXT = """
-The quick brown fox jumps over the lazy dog. A scientist writes a hypothesis, collects evidence, and revises the claim.
-
-Question: Which object is used to write on a chalkboard? A. spoon B. chalk C. blanket D. river Answer: B.
-
-Question: If rain falls all night, what is likely to be wet in the morning? A. sidewalk B. flame C. desert map D. candle Answer: A.
-
-Paris is the capital city of France. Water freezes when it gets cold enough. Plants often need sunlight, water, and soil.
-
-Question: Which animal is known for laying eggs? A. chicken B. chair C. piano D. mountain Answer: A.
-
-In a library, books are organized so readers can find them. A recipe lists ingredients and steps for cooking food.
-
-Question: What tool is best for cutting paper? A. scissors B. pillow C. cloud D. bottle Answer: A.
-
-The moon orbits Earth. A thermometer measures temperature. A map helps a traveler understand locations and routes.
-
-Question: If a cup is full of hot tea, what should you do before drinking quickly? A. let it cool B. freeze the sun C. fold a stone D. erase the cup Answer: A.
-""".strip()
-
 
 app = modal.App(APP_NAME)
 volume = modal.Volume.from_name(VOLUME_NAME, create_if_missing=True)
@@ -63,17 +43,33 @@ def run_smollm_recovery(
     sequence_length: int,
     learning_rate: float,
     train_experts: bool,
+    corpus_sources: str,
+    max_samples_per_source: int,
+    include_answers: bool,
 ) -> dict[str, object]:
+    from moeforge.corpus import CorpusBuildOptions, build_recovery_corpus
     from moeforge.recovery_experiment import run_recovery_experiment
 
     run_dir = REMOTE_ROOT / "recovery-runs" / run_name
     run_dir.mkdir(parents=True, exist_ok=True)
     train_file = run_dir / "train.txt"
-    train_file.write_text(TRAIN_TEXT + "\n", encoding="utf-8")
+    corpus_manifest_path = run_dir / "recovery-corpus.json"
+    corpus_manifest = build_recovery_corpus(
+        CorpusBuildOptions(
+            output_path=train_file,
+            manifest_path=corpus_manifest_path,
+            sources=tuple(item.strip() for item in corpus_sources.split(",") if item.strip()),
+            max_samples_per_source=max_samples_per_source,
+            seed=13,
+            include_answers=include_answers,
+            split="train",
+        )
+    )
     config = {
         "model": source_model,
         "wrapper": wrapper,
         "output_dir": str(run_dir),
+        "corpus": corpus_manifest,
         "train": {
             "text_file": str(train_file),
             "sequence_length": sequence_length,
@@ -124,19 +120,37 @@ def run_smollm_recovery(
         "recovered_wrapper": report.get("recovered_wrapper"),
         "summary": report.get("summary"),
         "artifacts": report.get("artifacts"),
+        "corpus_manifest": str(corpus_manifest_path),
+        "corpus_summary": {
+            "sample_count": corpus_manifest.get("sample_count"),
+            "sha256": corpus_manifest.get("sha256"),
+            "sources": [
+                {
+                    "name": source.get("name"),
+                    "status": source.get("status"),
+                    "sample_count": source.get("sample_count"),
+                }
+                for source in corpus_manifest.get("sources", [])
+                if isinstance(source, dict)
+            ],
+            "warnings": corpus_manifest.get("warnings"),
+        },
     }
 
 
 @app.local_entrypoint()
 def main(
-    run_name: str = "smollm-st-router-200",
+    run_name: str = "smollm-benchmix-router-1000",
     wrapper: str = "/vol/smollm-moe-v5",
     source_model: str = "/vol/smollm-moe-v5/source-model",
-    steps: int = 200,
-    batch_size: int = 1,
-    sequence_length: int = 128,
-    learning_rate: float = 1e-4,
+    steps: int = 1000,
+    batch_size: int = 2,
+    sequence_length: int = 192,
+    learning_rate: float = 5e-5,
     train_experts: bool = False,
+    corpus_sources: str = "smollm-benchmix,builtin-smoke",
+    max_samples_per_source: int = 128,
+    include_answers: bool = False,
 ) -> None:
     manifest = run_smollm_recovery.remote(
         run_name=run_name,
@@ -147,5 +161,8 @@ def main(
         sequence_length=sequence_length,
         learning_rate=learning_rate,
         train_experts=train_experts,
+        corpus_sources=corpus_sources,
+        max_samples_per_source=max_samples_per_source,
+        include_answers=include_answers,
     )
     print(json.dumps(manifest, indent=2, sort_keys=True))

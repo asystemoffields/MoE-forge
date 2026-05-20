@@ -16,6 +16,7 @@ from .benchmark import (
 )
 from .carve import build_carve_manifest
 from .conversion import ConversionRunOptions, run_conversion
+from .corpus import CorpusBuildOptions, build_recovery_corpus
 from .evaluation import evaluate_hf_dense_vs_carved
 from .inspectors import inspect_model
 from .materialize import materialize_carve_manifest
@@ -61,6 +62,8 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_benchmark_plan(args)
         if args.command == "benchmark-compare":
             return _cmd_benchmark_compare(args)
+        if args.command == "corpus-build":
+            return _cmd_corpus_build(args)
         if args.command == "profile":
             return _cmd_profile(args)
         if args.command == "carve-manifest":
@@ -263,6 +266,24 @@ def build_parser() -> argparse.ArgumentParser:
     benchmark_compare_parser.add_argument("--min-average-retention", type=float, default=0.95, help="Min allowed average score retention.")
     benchmark_compare_parser.add_argument("--min-core-retention", type=float, default=0.90, help="Min allowed worst core-task retention.")
     benchmark_compare_parser.add_argument("--print", action="store_true", help="Also print the comparison JSON.")
+
+    corpus_parser = subparsers.add_parser(
+        "corpus-build",
+        help="Build a provenance-tracked text corpus for sparse-router recovery.",
+    )
+    corpus_parser.add_argument(
+        "--source",
+        action="append",
+        default=[],
+        help="Corpus source name. Use smollm-benchmix, builtin-smoke, or a named SmolLM benchmark source. Can repeat.",
+    )
+    corpus_parser.add_argument("--output", type=Path, required=True, help="Text corpus output path.")
+    corpus_parser.add_argument("--manifest", type=Path, help="Corpus manifest JSON output path.")
+    corpus_parser.add_argument("--max-samples-per-source", type=int, default=128, help="Maximum samples loaded from each source.")
+    corpus_parser.add_argument("--seed", type=int, default=13, help="Shuffle seed for dataset-backed sources.")
+    corpus_parser.add_argument("--split", default="train", help="Dataset split for sources that do not pin one.")
+    corpus_parser.add_argument("--include-answers", action="store_true", help="Include train-split answer text in corpus samples.")
+    corpus_parser.add_argument("--print", action="store_true", help="Also print the corpus manifest JSON.")
 
     plan_parser = subparsers.add_parser("plan", help="Create a dense-to-MoE conversion recipe.")
     plan_parser.add_argument("model", help="Path to a model folder, config.json, GGUF file, or HF model id.")
@@ -919,6 +940,25 @@ def _cmd_eval_batch(args: argparse.Namespace) -> int:
         return 1
     if manifest.get("evaluation", {}).get("strict") and not manifest.get("passed"):
         return 1
+    return 0
+
+
+def _cmd_corpus_build(args: argparse.Namespace) -> int:
+    manifest = build_recovery_corpus(
+        CorpusBuildOptions(
+            output_path=args.output,
+            manifest_path=args.manifest,
+            sources=tuple(args.source) if args.source else ("smollm-benchmix",),
+            max_samples_per_source=args.max_samples_per_source,
+            seed=args.seed,
+            include_answers=args.include_answers,
+            split=args.split,
+        )
+    )
+    if args.print:
+        print(json.dumps(manifest, indent=2, sort_keys=True))
+    else:
+        print(f"wrote {manifest['output_path']}")
     return 0
 
 
