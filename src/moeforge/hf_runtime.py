@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 import json
 import math
-from itertools import chain
+from itertools import chain, combinations
 from pathlib import Path
 from typing import Any
 
@@ -269,7 +269,7 @@ class MoEForgeCarvedMLPModule(_TorchModule):
         self.last_router_oracle_loss = None
         self.last_router_balance_loss = None
         collect_aux = bool(self.training and torch.is_grad_enabled())
-        oracle_scores = []
+        oracle_contributions = []
         if collect_aux:
             mean_probability = probabilities.reshape(-1, self.expert_count).mean(dim=0)
             uniform = torch.full_like(mean_probability, 1.0 / float(self.expert_count))
@@ -286,22 +286,18 @@ class MoEForgeCarvedMLPModule(_TorchModule):
             contribution = self._group_contribution(hidden_states, kind="expert", expert=expert)
             if contribution is None:
                 if collect_aux:
-                    oracle_scores.append(torch.zeros_like(probability_weight))
+                    oracle_contributions.append(torch.zeros_like(hidden_states))
                 continue
             if collect_aux:
-                oracle_scores.append(contribution.detach().abs().mean(dim=-1))
+                oracle_contributions.append(contribution.detach())
             if selected_any:
                 weighted = contribution * routing_weight.unsqueeze(-1)
                 output = weighted if output is None else output + weighted
-        if collect_aux and oracle_scores:
-            scores = torch.stack(oracle_scores, dim=-1)
-            target_top_k = min(int(self.token_router_top_k), int(scores.shape[-1]))
-            target_indices = torch.topk(scores, k=target_top_k, dim=-1).indices
-            target = torch.zeros_like(probabilities)
-            target.scatter_add_(
-                dim=-1,
-                index=target_indices,
-                src=torch.full_like(target_indices, 1.0 / float(target_top_k), dtype=probabilities.dtype),
+        if collect_aux and oracle_contributions:
+            target = _router_oracle_target_from_contributions(
+                contributions=oracle_contributions,
+                probabilities=probabilities,
+                target_top_k=min(int(self.token_router_top_k), len(oracle_contributions)),
             )
             self.last_router_oracle_loss = -(target * torch.log_softmax(logits, dim=-1)).sum(dim=-1).mean()
         if output is None:
@@ -696,6 +692,47 @@ def _normalized_top_k(value: int | None, *, expert_count: int) -> int | None:
     if top_k <= 0:
         raise MoEForgeHFError("token_router_top_k must be positive")
     return min(top_k, int(expert_count))
+
+
+def _router_oracle_target_from_contributions(
+    *,
+    contributions: list[Any],
+    probabilities: Any,
+    target_top_k: int,
+) -> Any:
+    if torch is None:  # pragma: no cover - optional dependency boundary
+        raise MoEForgeHFError("HF runtime requires torch")
+    expert_count = len(contributions)
+    target_top_k = min(max(int(target_top_k), 1), expert_count)
+    target = torch.zeros_like(probabilities)
+    if target_top_k >= expert_count:
+        target.fill_(1.0 / float(expert_count))
+        return target
+
+    combo_count = math.comb(expert_count, target_top_k)
+    if combo_count > 128:
+        scores = torch.stack([item.abs().mean(dim=-1) for item in contributions], dim=-1)
+        target_indices = torch.topk(scores, k=target_top_k, dim=-1).indices
+        target.scatter_add_(
+            dim=-1,
+            index=target_indices,
+            src=torch.full_like(target_indices, 1.0 / float(target_top_k), dtype=probabilities.dtype),
+        )
+        return target
+
+    expert_stack = torch.stack(contributions, dim=-2)
+    full_sum = expert_stack.sum(dim=-2)
+    combos = list(combinations(range(expert_count), target_top_k))
+    errors = []
+    for combo in combos:
+        combo_sum = expert_stack[..., list(combo), :].sum(dim=-2)
+        errors.append((full_sum - combo_sum).pow(2).mean(dim=-1))
+    best_combo = torch.stack(errors, dim=-1).argmin(dim=-1)
+    for combo_index, combo in enumerate(combos):
+        mask = (best_combo == combo_index).to(dtype=probabilities.dtype) / float(target_top_k)
+        for expert in combo:
+            target[..., expert] = target[..., expert] + mask
+    return target
 
 
 def _normalized_entropy(counts: list[int]) -> float:

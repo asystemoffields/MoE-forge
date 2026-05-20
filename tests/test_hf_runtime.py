@@ -11,6 +11,7 @@ from moeforge.hf_runtime import (
     MoEForgeConfig,
     MoEForgeForCausalLM,
     MoEForgeHFError,
+    _router_oracle_target_from_contributions,
     replace_hf_mlp_modules,
 )
 from moeforge.materialize import materialize_carve_manifest
@@ -138,6 +139,29 @@ def test_hf_token_router_top_k_all_preserves_carved_sum(tmp_path: Path) -> None:
     assert module.last_router_summary["routing_weighting"] == "binary_straight_through"
     assert module.last_router_oracle_loss is not None
     assert module.last_router_balance_loss is not None
+
+
+def test_router_oracle_target_uses_best_reconstruction_subset() -> None:
+    contributions = [
+        torch.tensor([[[10.0, 0.0]]]),
+        torch.tensor([[[0.0, 10.0]]]),
+        torch.tensor([[[10.0, 10.0]]]),
+    ]
+    probabilities = torch.full((1, 1, 3), 1.0 / 3.0)
+
+    top1 = _router_oracle_target_from_contributions(
+        contributions=contributions,
+        probabilities=probabilities,
+        target_top_k=1,
+    )
+    top2 = _router_oracle_target_from_contributions(
+        contributions=contributions,
+        probabilities=probabilities,
+        target_top_k=2,
+    )
+
+    assert torch.allclose(top1, torch.tensor([[[0.0, 0.0, 1.0]]]))
+    assert torch.allclose(top2, torch.tensor([[[0.5, 0.0, 0.5]]]))
 
 
 def test_replace_hf_mlp_modules_preserves_tiny_llama_outputs(tmp_path: Path) -> None:
