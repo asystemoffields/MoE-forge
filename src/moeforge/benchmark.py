@@ -318,6 +318,7 @@ def write_benchmark_plan(options: BenchmarkPlanOptions) -> dict[str, Any]:
         "source_model": options.source_model,
         "moe_model": options.moe_model,
         "output_dir": str(options.output_dir),
+        "backend_version_hint": "LightEval v0.12.x for compatibility with the SmolLM/Cosmopedia custom task file.",
         "max_samples": options.max_samples,
         "batch_size": options.batch_size,
         "custom_tasks_path": options.custom_tasks_path,

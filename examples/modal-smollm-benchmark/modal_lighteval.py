@@ -11,6 +11,7 @@ import modal
 
 APP_NAME = "moeforge-smollm-benchmark"
 VOLUME_NAME = "moeforge-benchmarks"
+LIGHTEVAL_REVISION = "v0.12.2"
 REMOTE_ROOT = Path("/vol")
 LIGHTEVAL_ROOT = Path("/opt/lighteval")
 CUSTOM_TASKS = Path("/opt/lighteval_tasks.py")
@@ -33,7 +34,7 @@ image = (
         "pillow",
     )
     .run_commands(
-        "git clone --depth 1 https://github.com/huggingface/lighteval.git /opt/lighteval",
+        f"git clone --depth 1 --branch {LIGHTEVAL_REVISION} https://github.com/huggingface/lighteval.git /opt/lighteval",
         "cd /opt/lighteval && pip install '.[accelerate,quantization,adapters]'",
         "curl -L https://raw.githubusercontent.com/huggingface/cosmopedia/main/evaluation/lighteval_tasks.py -o /opt/lighteval_tasks.py",
         "pip install git+https://github.com/asystemoffields/MoE-forge.git",
