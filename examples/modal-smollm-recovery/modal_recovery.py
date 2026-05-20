@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import shutil
 
@@ -9,13 +10,19 @@ import modal
 
 APP_NAME = "moeforge-smollm-recovery"
 VOLUME_NAME = "moeforge-benchmarks"
+HF_CACHE_VOLUME_NAME = "moeforge-hf-cache"
 MOEFORGE_REVISION = "974eeb06a32290a39d87e4b97c3493b9c9d2ee1a"
 REMOTE_ROOT = Path("/vol")
 REMOTE_ROOT_DISPLAY = "/vol"
+HF_CACHE_ROOT = "/cache"
+# GPU is fixed at function-registration time; override per launch with MOEFORGE_GPU=H100/T4/L4.
+DEFAULT_GPU = os.environ.get("MOEFORGE_GPU", "A10G")
 
 
 app = modal.App(APP_NAME)
 volume = modal.Volume.from_name(VOLUME_NAME, create_if_missing=True)
+# Persistent HF datasets/hub cache so corpus builds stop re-downloading every run.
+hf_cache_volume = modal.Volume.from_name(HF_CACHE_VOLUME_NAME, create_if_missing=True)
 
 image = (
     modal.Image.debian_slim(python_version="3.11")
@@ -31,10 +38,21 @@ image = (
         "pillow",
     )
     .pip_install(f"git+https://github.com/asystemoffields/MoE-forge.git@{MOEFORGE_REVISION}")
+    .env(
+        {
+            "HF_HOME": f"{HF_CACHE_ROOT}/hf",
+            "HF_DATASETS_CACHE": f"{HF_CACHE_ROOT}/hf/datasets",
+        }
+    )
 )
 
 
-@app.function(image=image, gpu="T4", timeout=60 * 60 * 12, volumes={str(REMOTE_ROOT): volume})
+@app.function(
+    image=image,
+    gpu=DEFAULT_GPU,
+    timeout=60 * 60 * 12,
+    volumes={str(REMOTE_ROOT): volume, HF_CACHE_ROOT: hf_cache_volume},
+)
 def run_smollm_recovery(
     *,
     run_name: str,
@@ -123,6 +141,7 @@ def run_smollm_recovery(
     report = run_recovery_experiment(config_path=config_path, output_dir=run_dir)
     (run_dir / "modal-recovery-manifest.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     volume.commit()
+    hf_cache_volume.commit()
     return {
         "format": "moeforge_modal_recovery_manifest",
         "run_name": run_name,
@@ -192,7 +211,7 @@ def main(
     wrapper: str = "/vol/smollm-moe-v5",
     source_model: str = "/vol/smollm-moe-v5/source-model",
     steps: int = 1000,
-    batch_size: int = 2,
+    batch_size: int = 8,
     sequence_length: int = 192,
     learning_rate: float = 5e-5,
     train_experts: bool = False,
@@ -203,6 +222,8 @@ def main(
     router_oracle_method: str = "magnitude",
     spawn: bool = False,
 ) -> None:
+    # GPU is set at registration time via DEFAULT_GPU (env MOEFORGE_GPU); A10G by default.
+    target = run_smollm_recovery
     kwargs = {
         "run_name": run_name,
         "wrapper": wrapper,
@@ -219,7 +240,7 @@ def main(
         "router_oracle_method": router_oracle_method,
     }
     if spawn:
-        call = run_smollm_recovery.spawn(**kwargs)
+        call = target.spawn(**kwargs)
         manifest = {
             "format": "moeforge_modal_recovery_spawn",
             "run_name": run_name,
@@ -229,5 +250,5 @@ def main(
             "expected_report": f"{REMOTE_ROOT_DISPLAY}/recovery-runs/{run_name}/modal-recovery-manifest.json",
         }
     else:
-        manifest = run_smollm_recovery.remote(**kwargs)
+        manifest = target.remote(**kwargs)
     print(json.dumps(manifest, indent=2, sort_keys=True))

@@ -19,7 +19,14 @@ from .conversion import ConversionRunOptions, run_conversion
 from .corpus import CorpusBuildOptions, build_recovery_corpus
 from .evaluation import evaluate_hf_dense_vs_carved
 from .inspectors import inspect_model
-from .jobs import JobLaunchOptions, ModalCollectOptions, collect_modal_artifact, launch_background_job
+from .jobs import (
+    JobLaunchOptions,
+    ModalCollectOptions,
+    RunStatusOptions,
+    collect_modal_artifact,
+    launch_background_job,
+    run_status,
+)
 from .materialize import materialize_carve_manifest
 from .model_card import write_model_card
 from .planner import PlanOptions, plan_conversion
@@ -39,6 +46,7 @@ from .recipe import recipe_to_dict
 from .router import build_router_plan
 from .runtime import verify_carved_artifact
 from .smoke import assert_tiny_hf_smoke_run
+from .summary import summarize_run
 from .wrapper import export_wrapper_package
 
 
@@ -69,6 +77,10 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_job_launch(args)
         if args.command == "job-collect":
             return _cmd_job_collect(args)
+        if args.command == "status":
+            return _cmd_status(args)
+        if args.command == "summarize":
+            return _cmd_summarize(args)
         if args.command == "profile":
             return _cmd_profile(args)
         if args.command == "carve-manifest":
@@ -314,6 +326,26 @@ def build_parser() -> argparse.ArgumentParser:
     collect_parser.add_argument("--remote-path", help="Override the remote artifact path from the spawn manifest.")
     collect_parser.add_argument("--dry-run", action="store_true", help="Write the collect plan without calling Modal.")
     collect_parser.add_argument("--print", action="store_true", help="Also print the collect report JSON.")
+
+    status_parser = subparsers.add_parser(
+        "status",
+        help="Report unified local + Modal state for a background job (running/done/failed).",
+    )
+    status_group = status_parser.add_mutually_exclusive_group(required=True)
+    status_group.add_argument("--job", type=Path, help="Background job.json (or its directory) from job-launch.")
+    status_group.add_argument("--name", help="Job name; resolved under --jobs-dir.")
+    status_parser.add_argument("--jobs-dir", type=Path, default=Path("outputs/modal-jobs"), help="Directory holding named job dirs.")
+    status_parser.add_argument("--volume", default="moeforge-benchmarks", help="Modal volume name.")
+    status_parser.add_argument("--no-remote", action="store_true", help="Do not query Modal; report local state only.")
+    status_parser.add_argument("--json", action="store_true", help="Print the full machine-readable status JSON.")
+
+    summarize_parser = subparsers.add_parser(
+        "summarize",
+        help="Turn a recovery-experiment / modal-recovery-manifest report into a decision-ready verdict.",
+    )
+    summarize_parser.add_argument("report", type=Path, help="Recovery-experiment report or modal-recovery-manifest JSON.")
+    summarize_parser.add_argument("--output", type=Path, help="Optional path to write the summary JSON.")
+    summarize_parser.add_argument("--json", action="store_true", help="Print the full machine-readable summary JSON.")
 
     plan_parser = subparsers.add_parser("plan", help="Create a dense-to-MoE conversion recipe.")
     plan_parser.add_argument("model", help="Path to a model folder, config.json, GGUF file, or HF model id.")
@@ -710,6 +742,38 @@ def _cmd_job_collect(args: argparse.Namespace) -> int:
     else:
         print(f"{report['status']}; wrote {report['report_path']}")
     return 0 if report.get("status") in {"planned", "collected"} else 1
+
+
+def _cmd_status(args: argparse.Namespace) -> int:
+    report = run_status(
+        RunStatusOptions(
+            job_manifest=args.job,
+            name=args.name,
+            jobs_dir=args.jobs_dir,
+            volume=args.volume,
+            query_remote=not args.no_remote,
+        )
+    )
+    if args.json:
+        print(json.dumps(report, indent=2, sort_keys=True))
+    else:
+        print(f"{report['state']}: {report.get('run_name')}")
+        for command in report.get("next_commands", []):
+            print(f"  next: {command}")
+    return 1 if report["state"] == "failed" else 0
+
+
+def _cmd_summarize(args: argparse.Namespace) -> int:
+    report = summarize_run(report_path=args.report, output_path=args.output)
+    if args.json:
+        print(json.dumps(report, indent=2, sort_keys=True))
+    else:
+        print(report["headline"])
+        for finding in report.get("findings", []):
+            print(f"  - {finding}")
+        for command in report.get("next_commands", []):
+            print(f"  next: {command}")
+    return 0
 
 
 def _cmd_publish_check(args: argparse.Namespace) -> int:
