@@ -13,7 +13,7 @@ import modal
 APP_NAME = "moeforge-smollm-benchmark"
 VOLUME_NAME = "moeforge-benchmarks"
 LIGHTEVAL_REVISION = "v0.10.0"
-MOEFORGE_REVISION = "89b8dcfdeb8e4930347fc2ef5d576fe59ef658e1"
+MOEFORGE_REVISION = "a2c1ce64abad77f87aa9e3924e243f824f55cff3"
 COSMOPEDIA_TASKS_REVISION = "38789cac6b7a15047cec96ffd14d4c6dfd9cdf4c"
 COSMOPEDIA_TASKS_URL = (
     "https://raw.githubusercontent.com/huggingface/cosmopedia/"
