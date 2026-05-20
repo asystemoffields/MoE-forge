@@ -51,7 +51,7 @@ def test_benchmark_plan_supports_instruct_chat_template(tmp_path: Path) -> None:
     assert status == 0
     assert "lighteval|ifeval|0|0" in plan["task_spec"]
     assert "lighteval|mt_bench|0|0" in plan["task_spec"]
-    assert "override_chat_template=True" in plan["commands"]["dense"]
+    assert "--use-chat-template" in plan["commands"]["dense"]
     assert any(task["priority"] == "chat_core" for task in plan["tasks"])
 
 

@@ -318,7 +318,7 @@ def write_benchmark_plan(options: BenchmarkPlanOptions) -> dict[str, Any]:
         "source_model": options.source_model,
         "moe_model": options.moe_model,
         "output_dir": str(options.output_dir),
-        "backend_version_hint": "LightEval v0.12.x for compatibility with the SmolLM/Cosmopedia custom task file.",
+        "backend_version_hint": "LightEval v0.10.x for compatibility with the SmolLM/Cosmopedia custom task file.",
         "max_samples": options.max_samples,
         "batch_size": options.batch_size,
         "custom_tasks_path": options.custom_tasks_path,
@@ -516,8 +516,6 @@ def _lighteval_command(
     model_args = f"model_name={model},batch_size={batch_size}"
     if trust_remote_code:
         model_args += ",trust_remote_code=True"
-    if use_chat_template:
-        model_args += ",override_chat_template=True"
     command = (
         "lighteval accelerate "
         f'"{model_args}" '
@@ -527,6 +525,8 @@ def _lighteval_command(
         f"--max-samples {max_samples} "
         "--save-details"
     )
+    if use_chat_template:
+        command += " --use-chat-template"
     return command
 
 

@@ -11,7 +11,7 @@ import modal
 
 APP_NAME = "moeforge-smollm-benchmark"
 VOLUME_NAME = "moeforge-benchmarks"
-LIGHTEVAL_REVISION = "v0.12.2"
+LIGHTEVAL_REVISION = "v0.10.0"
 REMOTE_ROOT = Path("/vol")
 LIGHTEVAL_ROOT = Path("/opt/lighteval")
 CUSTOM_TASKS = Path("/opt/lighteval_tasks.py")
@@ -125,8 +125,6 @@ def _run_lighteval(
     model_args = f"model_name={model},batch_size={batch_size}"
     if trust_remote_code:
         model_args += ",trust_remote_code=True"
-    if use_chat_template:
-        model_args += ",override_chat_template=True"
     command = [
         "python",
         "-m",
@@ -142,6 +140,8 @@ def _run_lighteval(
         str(max_samples),
         "--save-details",
     ]
+    if use_chat_template:
+        command.append("--use-chat-template")
     completed = subprocess.run(command, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False)
     (output_dir / "command.txt").write_text(shlex.join(command) + "\n", encoding="utf-8")
     (output_dir / "stdout.txt").write_text(completed.stdout, encoding="utf-8")

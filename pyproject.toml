@@ -20,7 +20,7 @@ dev = ["pytest>=8.0"]
 hf = ["torch>=2.2", "transformers>=4.45", "safetensors>=0.4"]
 profile = ["torch>=2.2", "transformers>=4.45", "safetensors>=0.4"]
 yaml = ["PyYAML>=6.0"]
-benchmark = ["accelerate>=0.34", "lighteval>=0.12,<0.13"]
+benchmark = ["accelerate>=0.34", "lighteval>=0.10,<0.11"]
 
 [project.scripts]
 moe-forge = "moeforge.cli:main"
