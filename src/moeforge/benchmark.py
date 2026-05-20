@@ -6,6 +6,22 @@ from pathlib import Path
 from typing import Any
 
 
+COSMOPEDIA_TASKS_REVISION = "38789cac6b7a15047cec96ffd14d4c6dfd9cdf4c"
+COSMOPEDIA_TASKS_URL = (
+    "https://raw.githubusercontent.com/huggingface/cosmopedia/"
+    f"{COSMOPEDIA_TASKS_REVISION}/evaluation/lighteval_tasks.py"
+)
+COSMOPEDIA_TASKS_V010_PATCH = (
+    "python -c \"from pathlib import Path; p=Path('lighteval_tasks.py'); "
+    "text=p.read_text(); "
+    "text=text.replace('        output_regex=None,\\n',''); "
+    "text=text.replace('        frozen=False,\\n',''); "
+    "text=text.replace('            output_regex=output_regex,\\n',''); "
+    "text=text.replace('            frozen=frozen,\\n',''); "
+    "p.write_text(text)\""
+)
+
+
 SMOLLM_BASE_TASKS: list[dict[str, Any]] = [
     {
         "id": "hellaswag",
@@ -319,6 +335,7 @@ def write_benchmark_plan(options: BenchmarkPlanOptions) -> dict[str, Any]:
         "moe_model": options.moe_model,
         "output_dir": str(options.output_dir),
         "backend_version_hint": "LightEval v0.10.x for compatibility with the SmolLM/Cosmopedia custom task file.",
+        "custom_tasks_revision": COSMOPEDIA_TASKS_REVISION,
         "max_samples": options.max_samples,
         "batch_size": options.batch_size,
         "custom_tasks_path": options.custom_tasks_path,
@@ -326,9 +343,10 @@ def write_benchmark_plan(options: BenchmarkPlanOptions) -> dict[str, Any]:
         "task_spec": task_spec,
         "commands": {
             "install": [
-                "git clone https://github.com/huggingface/lighteval.git",
+                "git clone --branch v0.10.0 https://github.com/huggingface/lighteval.git",
                 "cd lighteval && pip install '.[accelerate,quantization,adapters]'",
-                "curl -L https://raw.githubusercontent.com/huggingface/cosmopedia/main/evaluation/lighteval_tasks.py -o lighteval_tasks.py",
+                f"curl -L {COSMOPEDIA_TASKS_URL} -o lighteval_tasks.py",
+                COSMOPEDIA_TASKS_V010_PATCH,
             ],
             "dense": _lighteval_command(
                 model=options.source_model,

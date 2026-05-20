@@ -4,8 +4,10 @@ This example runs the benchmark plan emitted by `moe-forge benchmark-plan` on Mo
 
 Use it when local CPU benchmarking is too slow and you want the dense source checkpoint and
 the MoE wrapper tested with the same LightEval checkout, task list, sample cap, and batch size.
-The runner pins LightEval to `v0.10.0` because the SmolLM/Cosmopedia custom task file was written
-against that task API, and it pins `datasets>=3.5,<4` to match that LightEval generation.
+The runner pins LightEval to `v0.10.0`, pins the Cosmopedia task script to commit
+`38789cac6b7a15047cec96ffd14d4c6dfd9cdf4c`, applies the small task-config compatibility
+patch recorded by `benchmark-plan`, and pins `datasets>=3.5,<4` to match that LightEval
+generation.
 
 ## Base SmolLM
 

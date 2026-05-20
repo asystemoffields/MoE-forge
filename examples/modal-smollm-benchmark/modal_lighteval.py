@@ -12,6 +12,11 @@ import modal
 APP_NAME = "moeforge-smollm-benchmark"
 VOLUME_NAME = "moeforge-benchmarks"
 LIGHTEVAL_REVISION = "v0.10.0"
+COSMOPEDIA_TASKS_REVISION = "38789cac6b7a15047cec96ffd14d4c6dfd9cdf4c"
+COSMOPEDIA_TASKS_URL = (
+    "https://raw.githubusercontent.com/huggingface/cosmopedia/"
+    f"{COSMOPEDIA_TASKS_REVISION}/evaluation/lighteval_tasks.py"
+)
 REMOTE_ROOT = Path("/vol")
 LIGHTEVAL_ROOT = Path("/opt/lighteval")
 CUSTOM_TASKS = Path("/opt/lighteval_tasks.py")
@@ -36,7 +41,20 @@ image = (
     .run_commands(
         f"git clone --depth 1 --branch {LIGHTEVAL_REVISION} https://github.com/huggingface/lighteval.git /opt/lighteval",
         "cd /opt/lighteval && pip install '.[accelerate,quantization,adapters]'",
-        "curl -L https://raw.githubusercontent.com/huggingface/cosmopedia/main/evaluation/lighteval_tasks.py -o /opt/lighteval_tasks.py",
+        f"curl -L {COSMOPEDIA_TASKS_URL} -o /opt/lighteval_tasks.py",
+        (
+            "python -c \"from pathlib import Path; p=Path('/opt/lighteval_tasks.py'); "
+            "text=p.read_text(); "
+            "text=text.replace('        output_regex=None,\\n',''); "
+            "text=text.replace('        frozen=False,\\n',''); "
+            "text=text.replace('            output_regex=output_regex,\\n',''); "
+            "text=text.replace('            frozen=frozen,\\n',''); "
+            "p.write_text(text)\""
+        ),
+        (
+            "python -c \"from pathlib import Path; text=Path('/opt/lighteval_tasks.py').read_text(); "
+            "assert 'output_regex' not in text and 'frozen=' not in text\""
+        ),
         "pip install git+https://github.com/asystemoffields/MoE-forge.git",
     )
 )
