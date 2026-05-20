@@ -8,7 +8,7 @@ import modal
 
 APP_NAME = "moeforge-smollm-recovery"
 VOLUME_NAME = "moeforge-benchmarks"
-MOEFORGE_REVISION = "3644bf5e8e800de9c9d8288a6a7646145bb4c45f"
+MOEFORGE_REVISION = "89b8dcfdeb8e4930347fc2ef5d576fe59ef658e1"
 REMOTE_ROOT = Path("/vol")
 
 
