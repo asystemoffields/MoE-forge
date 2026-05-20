@@ -233,17 +233,29 @@ def main(
     moe_model: str | None = None,
     max_samples: int | None = None,
     batch_size: int | None = None,
+    spawn: bool = False,
 ) -> None:
     if which not in {"dense", "moe", "both"}:
         raise ValueError("--which must be dense, moe, or both")
     plan_json = Path(plan).read_text(encoding="utf-8")
-    manifest = run_benchmark_plan.remote(
-        plan_json,
-        run_name=run_name,
-        which=which,  # type: ignore[arg-type]
-        source_model=source_model,
-        moe_model=moe_model,
-        max_samples=max_samples,
-        batch_size=batch_size,
-    )
+    kwargs = {
+        "run_name": run_name,
+        "which": which,  # type: ignore[dict-item]
+        "source_model": source_model,
+        "moe_model": moe_model,
+        "max_samples": max_samples,
+        "batch_size": batch_size,
+    }
+    if spawn:
+        call = run_benchmark_plan.spawn(plan_json, **kwargs)
+        manifest = {
+            "format": "moeforge_modal_benchmark_spawn",
+            "run_name": run_name,
+            "run_dir": str(REMOTE_ROOT / "runs" / run_name),
+            "function_call_id": call.object_id,
+            "dashboard_url": call.get_dashboard_url(),
+            "expected_report": str(REMOTE_ROOT / "runs" / run_name / "modal-benchmark-manifest.json"),
+        }
+    else:
+        manifest = run_benchmark_plan.remote(plan_json, **kwargs)
     print(json.dumps(manifest, indent=2, sort_keys=True))

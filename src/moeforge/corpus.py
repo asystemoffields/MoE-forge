@@ -228,7 +228,12 @@ def _dataset_samples(
     loaded_via = None
     for candidate in source.candidates:
         try:
-            dataset = load_dataset(candidate, source.config, split=source.split)
+            dataset = _load_dataset_noninteractive(
+                load_dataset,
+                candidate,
+                source.config,
+                split=source.split,
+            )
             loaded_candidate = candidate
             loaded_via = "load_dataset"
             break
@@ -285,6 +290,7 @@ def _dataset_samples(
         "status": "loaded",
         "dataset": loaded_candidate,
         "loaded_via": loaded_via,
+        "trust_remote_code": True,
         "dataset_candidates": list(source.candidates),
         "config": source.config,
         "split": source.split,
@@ -325,6 +331,19 @@ def _load_converted_parquet_dataset(
         for path in sorted(parquet_files)
     ]
     return load_dataset("parquet", data_files={split_name: urls}, split=split_name)
+
+
+def _load_dataset_noninteractive(
+    load_dataset: Any,
+    path: str,
+    name: str | None,
+    *,
+    split: str | None,
+) -> Any:
+    try:
+        return load_dataset(path, name, split=split, trust_remote_code=True)
+    except TypeError:
+        return load_dataset(path, name, split=split)
 
 
 def _dataset_length(dataset: Any) -> int:

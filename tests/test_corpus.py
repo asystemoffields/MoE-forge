@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from moeforge.cli import main
-from moeforge.corpus import CorpusBuildError, CorpusBuildOptions, build_recovery_corpus
+from moeforge.corpus import CorpusBuildError, CorpusBuildOptions, _load_dataset_noninteractive, build_recovery_corpus
 
 
 def test_build_recovery_corpus_builtin_records_manifest(tmp_path: Path) -> None:
@@ -67,3 +67,50 @@ def test_corpus_build_rejects_unknown_source(tmp_path: Path) -> None:
                 sources=("not-a-source",),
             )
         )
+
+
+def test_load_dataset_noninteractive_sets_trust_remote_code() -> None:
+    calls: list[dict[str, object]] = []
+
+    def fake_load_dataset(path: str, name: str | None, **kwargs: object) -> dict[str, object]:
+        calls.append({"path": path, "name": name, **kwargs})
+        return {"loaded": True}
+
+    dataset = _load_dataset_noninteractive(fake_load_dataset, "demo/dataset", "config", split="train")
+
+    assert dataset == {"loaded": True}
+    assert calls == [
+        {
+            "path": "demo/dataset",
+            "name": "config",
+            "split": "train",
+            "trust_remote_code": True,
+        }
+    ]
+
+
+def test_load_dataset_noninteractive_falls_back_for_old_datasets() -> None:
+    calls: list[dict[str, object]] = []
+
+    def fake_load_dataset(path: str, name: str | None, **kwargs: object) -> dict[str, object]:
+        calls.append({"path": path, "name": name, **kwargs})
+        if "trust_remote_code" in kwargs:
+            raise TypeError("unexpected keyword argument 'trust_remote_code'")
+        return {"loaded": True}
+
+    dataset = _load_dataset_noninteractive(fake_load_dataset, "demo/dataset", None, split="validation")
+
+    assert dataset == {"loaded": True}
+    assert calls == [
+        {
+            "path": "demo/dataset",
+            "name": None,
+            "split": "validation",
+            "trust_remote_code": True,
+        },
+        {
+            "path": "demo/dataset",
+            "name": None,
+            "split": "validation",
+        },
+    ]

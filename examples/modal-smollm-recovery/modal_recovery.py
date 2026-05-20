@@ -200,20 +200,33 @@ def main(
     include_answers: bool = False,
     token_router_top_k: int | None = None,
     router_oracle_method: str = "magnitude",
+    spawn: bool = False,
 ) -> None:
-    manifest = run_smollm_recovery.remote(
-        run_name=run_name,
-        wrapper=wrapper,
-        source_model=source_model,
-        steps=steps,
-        batch_size=batch_size,
-        sequence_length=sequence_length,
-        learning_rate=learning_rate,
-        train_experts=train_experts,
-        corpus_sources=corpus_sources,
-        max_samples_per_source=max_samples_per_source,
-        include_answers=include_answers,
-        token_router_top_k=token_router_top_k,
-        router_oracle_method=router_oracle_method,
-    )
+    kwargs = {
+        "run_name": run_name,
+        "wrapper": wrapper,
+        "source_model": source_model,
+        "steps": steps,
+        "batch_size": batch_size,
+        "sequence_length": sequence_length,
+        "learning_rate": learning_rate,
+        "train_experts": train_experts,
+        "corpus_sources": corpus_sources,
+        "max_samples_per_source": max_samples_per_source,
+        "include_answers": include_answers,
+        "token_router_top_k": token_router_top_k,
+        "router_oracle_method": router_oracle_method,
+    }
+    if spawn:
+        call = run_smollm_recovery.spawn(**kwargs)
+        manifest = {
+            "format": "moeforge_modal_recovery_spawn",
+            "run_name": run_name,
+            "run_dir": str(REMOTE_ROOT / "recovery-runs" / run_name),
+            "function_call_id": call.object_id,
+            "dashboard_url": call.get_dashboard_url(),
+            "expected_report": str(REMOTE_ROOT / "recovery-runs" / run_name / "modal-recovery-manifest.json"),
+        }
+    else:
+        manifest = run_smollm_recovery.remote(**kwargs)
     print(json.dumps(manifest, indent=2, sort_keys=True))

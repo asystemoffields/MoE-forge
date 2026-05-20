@@ -48,7 +48,7 @@ moe-forge benchmark-plan --source-model HuggingFaceTB/SmolLM-135M --moe-model re
 moe-forge benchmark-plan --source-model HuggingFaceTB/SmolLM-135M-Instruct --moe-model recovered-wrapper --suite smollm-instruct --output instruct-benchmark-plan.json
 moe-forge benchmark-compare --dense-report benchmarks/smollm-base/dense/results.json --moe-report benchmarks/smollm-base/moe/results.json --suite smollm-base --output benchmark-compare.json
 moe-forge publish-check --wrapper recovered-wrapper --eval-report eval-all.json --eval-report eval-learned-router.json --benchmark-report benchmark-compare.json --recovery-report recovery-experiment-report.json --validation-report recovered-wrapper-validation.json --require-recovery --require-benchmark
-moe-forge job-launch --name smollm-router-sweep --output-dir outputs/jobs -- modal run --detach examples/modal-smollm-recovery/modal_recovery.py --run-name smollm-router-sweep --token-router-top-k 3
+moe-forge job-launch --name smollm-router-sweep --output-dir outputs/jobs -- modal run examples/modal-smollm-recovery/modal_recovery.py --run-name smollm-router-sweep --token-router-top-k 3 --spawn
 moe-forge smoke-assert --run-dir . --output smoke-assertions.json
 ```
 
