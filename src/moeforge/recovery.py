@@ -158,12 +158,17 @@ def _loss_config(config: dict[str, Any]) -> dict[str, Any]:
         "logits_mse_weight": float(raw.get("logits_mse_weight", 0.0)),
         "router_oracle_weight": float(raw.get("router_oracle_weight", 0.0)),
         "router_balance_weight": float(raw.get("router_balance_weight", 0.01)),
+        "router_oracle_method": str(raw.get("router_oracle_method", "magnitude")),
         "z_loss_weight": float(raw.get("z_loss_weight", 0.0)),
         "temperature": float(raw.get("temperature", 1.0)),
     }
     if loss["temperature"] <= 0:
         raise RecoveryPlanError("loss.temperature must be greater than zero")
+    if loss["router_oracle_method"] not in {"magnitude", "residual_subset"}:
+        raise RecoveryPlanError("loss.router_oracle_method must be magnitude or residual_subset")
     for key, value in loss.items():
+        if key == "router_oracle_method":
+            continue
         if key != "temperature" and value < 0:
             raise RecoveryPlanError(f"loss.{key} must be non-negative")
     return loss

@@ -40,7 +40,11 @@ def test_write_recovery_plan_records_training_settings_and_before_after(tmp_path
                 "output_dir": "run",
                 "train": {"text_file": str(train_text), "sequence_length": 64},
                 "eval": {"input_ids": [[1, 2, 3, 4]]},
-                "loss": {"temperature": 2.0, "teacher_kl_weight": 0.8},
+                "loss": {
+                    "temperature": 2.0,
+                    "teacher_kl_weight": 0.8,
+                    "router_oracle_method": "residual_subset",
+                },
                 "optimizer": {"learning_rate": 0.0001},
                 "schedule": {"steps": 12, "eval_every_steps": 3},
                 "checkpoints": {"keep_last": 3},
@@ -61,6 +65,7 @@ def test_write_recovery_plan_records_training_settings_and_before_after(tmp_path
     assert saved["teacher"]["model"] == "dense-teacher"
     assert saved["student"]["wrapper"] == str(tmp_path / "wrapper")
     assert saved["loss"]["temperature"] == 2.0
+    assert saved["loss"]["router_oracle_method"] == "residual_subset"
     assert saved["schedule"]["steps"] == 12
     assert saved["checkpoints"]["keep_last"] == 3
     assert saved["samples"]["train"]["sample_count"] == 2
@@ -154,6 +159,23 @@ def test_recovery_plan_validates_loss(tmp_path: Path) -> None:
     )
 
     with pytest.raises(RecoveryPlanError, match="temperature"):
+        write_recovery_plan(config_path=config_path)
+
+
+def test_recovery_plan_validates_router_oracle_method(tmp_path: Path) -> None:
+    config_path = tmp_path / "recovery.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "teacher_model": "dense-teacher",
+                "wrapper": "wrapper",
+                "loss": {"router_oracle_method": "unknown"},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RecoveryPlanError, match="router_oracle_method"):
         write_recovery_plan(config_path=config_path)
 
 

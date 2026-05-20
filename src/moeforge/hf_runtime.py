@@ -166,6 +166,7 @@ class MoEForgeCarvedMLPModule(_TorchModule):
         self.last_router_summary: dict[str, Any] | None = None
         self.last_router_oracle_loss: Any | None = None
         self.last_router_balance_loss: Any | None = None
+        self.router_oracle_method = "magnitude"
         self._tensor_buffers: dict[str, str] = {}
 
         prefix = f"moe.layers.{layer}.mlp."
@@ -294,11 +295,21 @@ class MoEForgeCarvedMLPModule(_TorchModule):
                 weighted = contribution * routing_weight.unsqueeze(-1)
                 output = weighted if output is None else output + weighted
         if collect_aux and oracle_contributions:
-            target = _router_oracle_target_from_contributions(
-                contributions=oracle_contributions,
-                probabilities=probabilities,
-                target_top_k=min(int(self.token_router_top_k), len(oracle_contributions)),
-            )
+            target_top_k = min(int(self.token_router_top_k), len(oracle_contributions))
+            if self.router_oracle_method == "magnitude":
+                target = _router_oracle_target_from_magnitude(
+                    contributions=oracle_contributions,
+                    probabilities=probabilities,
+                    target_top_k=target_top_k,
+                )
+            elif self.router_oracle_method == "residual_subset":
+                target = _router_oracle_target_from_contributions(
+                    contributions=oracle_contributions,
+                    probabilities=probabilities,
+                    target_top_k=target_top_k,
+                )
+            else:
+                raise MoEForgeHFError(f"unsupported router oracle method: {self.router_oracle_method}")
             self.last_router_oracle_loss = -(target * torch.log_softmax(logits, dim=-1)).sum(dim=-1).mean()
         if output is None:
             raise MoEForgeHFError(f"token router found no runnable carved MLP tensors for layer {self.layer}")
@@ -732,6 +743,24 @@ def _router_oracle_target_from_contributions(
         mask = (best_combo == combo_index).to(dtype=probabilities.dtype) / float(target_top_k)
         for expert in combo:
             target[..., expert] = target[..., expert] + mask
+    return target
+
+
+def _router_oracle_target_from_magnitude(
+    *,
+    contributions: list[Any],
+    probabilities: Any,
+    target_top_k: int,
+) -> Any:
+    scores = torch.stack([item.abs().mean(dim=-1) for item in contributions], dim=-1)
+    target_top_k = min(max(int(target_top_k), 1), int(scores.shape[-1]))
+    target_indices = torch.topk(scores, k=target_top_k, dim=-1).indices
+    target = torch.zeros_like(probabilities)
+    target.scatter_add_(
+        dim=-1,
+        index=target_indices,
+        src=torch.full_like(target_indices, 1.0 / float(target_top_k), dtype=probabilities.dtype),
+    )
     return target
 
 

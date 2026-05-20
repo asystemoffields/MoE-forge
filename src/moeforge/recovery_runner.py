@@ -54,6 +54,7 @@ def run_recovery(
     teacher.eval()
     _freeze_student(student=student, trainable=_dict(student_config.get("trainable")))
     replacement_report = replace_hf_mlp_modules(student, Path(str(student_config["wrapper"])))
+    router_oracle_method = _configure_router_oracle_method(student=student, loss_config=loss_config)
     promoted = _promote_carved_parameters(
         student=student,
         trainable=_dict(student_config.get("trainable")),
@@ -123,6 +124,7 @@ def run_recovery(
         "final_loss": losses[-1]["total_loss"] if losses else None,
         "losses": losses,
         "loss_config": loss_config,
+        "router_oracle_method": router_oracle_method,
         "optimizer": optimizer_config,
         "replacement_report": replacement_report.to_dict(),
         "train_sample_source": train_sample_source,
@@ -616,6 +618,16 @@ def _configure_router_parameters(*, student: Any, trainable: dict[str, Any]) -> 
                 }
             )
     return [record for record in records if record["trainable"]]
+
+
+def _configure_router_oracle_method(*, student: Any, loss_config: dict[str, Any]) -> str:
+    method = str(loss_config.get("router_oracle_method", "magnitude"))
+    if method not in {"magnitude", "residual_subset"}:
+        raise RecoveryRunError("loss.router_oracle_method must be magnitude or residual_subset")
+    for module in student.modules():
+        if isinstance(module, MoEForgeCarvedMLPModule):
+            module.router_oracle_method = method
+    return method
 
 
 def _optimizer(config: dict[str, Any], *, parameters: list[Any], torch: Any) -> Any:

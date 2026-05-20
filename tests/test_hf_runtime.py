@@ -12,6 +12,7 @@ from moeforge.hf_runtime import (
     MoEForgeForCausalLM,
     MoEForgeHFError,
     _router_oracle_target_from_contributions,
+    _router_oracle_target_from_magnitude,
     replace_hf_mlp_modules,
 )
 from moeforge.materialize import materialize_carve_manifest
@@ -162,6 +163,23 @@ def test_router_oracle_target_uses_best_reconstruction_subset() -> None:
 
     assert torch.allclose(top1, torch.tensor([[[0.0, 0.0, 1.0]]]))
     assert torch.allclose(top2, torch.tensor([[[0.5, 0.0, 0.5]]]))
+
+
+def test_router_oracle_target_from_magnitude_keeps_original_ranking() -> None:
+    contributions = [
+        torch.tensor([[[9.0, 0.0]]]),
+        torch.tensor([[[0.0, 1.0]]]),
+        torch.tensor([[[4.0, 4.0]]]),
+    ]
+    probabilities = torch.full((1, 1, 3), 1.0 / 3.0)
+
+    target = _router_oracle_target_from_magnitude(
+        contributions=contributions,
+        probabilities=probabilities,
+        target_top_k=2,
+    )
+
+    assert torch.allclose(target, torch.tensor([[[0.5, 0.0, 0.5]]]))
 
 
 def test_replace_hf_mlp_modules_preserves_tiny_llama_outputs(tmp_path: Path) -> None:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import shutil
 
 import modal
 
@@ -46,12 +47,20 @@ def run_smollm_recovery(
     corpus_sources: str,
     max_samples_per_source: int,
     include_answers: bool,
+    token_router_top_k: int | None,
+    router_oracle_method: str,
 ) -> dict[str, object]:
     from moeforge.corpus import CorpusBuildOptions, build_recovery_corpus
     from moeforge.recovery_experiment import run_recovery_experiment
 
     run_dir = REMOTE_ROOT / "recovery-runs" / run_name
     run_dir.mkdir(parents=True, exist_ok=True)
+    effective_wrapper = _prepared_wrapper(
+        wrapper=Path(wrapper),
+        source_model=source_model,
+        run_dir=run_dir,
+        token_router_top_k=token_router_top_k,
+    )
     train_file = run_dir / "train.txt"
     corpus_manifest_path = run_dir / "recovery-corpus.json"
     corpus_manifest = build_recovery_corpus(
@@ -67,7 +76,7 @@ def run_smollm_recovery(
     )
     config = {
         "model": source_model,
-        "wrapper": wrapper,
+        "wrapper": str(effective_wrapper),
         "output_dir": str(run_dir),
         "corpus": corpus_manifest,
         "train": {
@@ -92,6 +101,7 @@ def run_smollm_recovery(
                 "teacher_kl_weight": 1.0,
                 "logits_mse_weight": 0.05,
                 "router_oracle_weight": 0.25,
+                "router_oracle_method": router_oracle_method,
                 "router_balance_weight": 0.01,
             },
             "optimizer": {
@@ -118,6 +128,9 @@ def run_smollm_recovery(
         "run_dir": str(run_dir),
         "report": str(run_dir / "modal-recovery-manifest.json"),
         "recovered_wrapper": report.get("recovered_wrapper"),
+        "wrapper": str(effective_wrapper),
+        "token_router_top_k": token_router_top_k,
+        "router_oracle_method": router_oracle_method,
         "summary": report.get("summary"),
         "artifacts": report.get("artifacts"),
         "corpus_manifest": str(corpus_manifest_path),
@@ -138,6 +151,40 @@ def run_smollm_recovery(
     }
 
 
+def _prepared_wrapper(
+    *,
+    wrapper: Path,
+    source_model: str,
+    run_dir: Path,
+    token_router_top_k: int | None,
+) -> Path:
+    if token_router_top_k is None:
+        return wrapper
+    if token_router_top_k <= 0:
+        raise ValueError("token_router_top_k must be positive")
+    target = run_dir / f"source-wrapper-topk-{token_router_top_k}"
+    if target.exists():
+        shutil.rmtree(target)
+    target.mkdir(parents=True)
+    skip_dirs = {"source-model", "__pycache__"}
+    for item in wrapper.iterdir():
+        if item.name in skip_dirs or item.name.startswith("results_"):
+            continue
+        if item.is_dir():
+            if item.name.startswith("20") and "T" in item.name:
+                continue
+            shutil.copytree(item, target / item.name)
+        else:
+            shutil.copy2(item, target / item.name)
+    for config_name in ("config.json", "moeforge_config.json"):
+        path = target / config_name
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload["token_router_top_k"] = int(token_router_top_k)
+        payload["source_model"] = source_model
+        path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return target
+
+
 @app.local_entrypoint()
 def main(
     run_name: str = "smollm-benchmix-router-1000",
@@ -151,6 +198,8 @@ def main(
     corpus_sources: str = "smollm-benchmix,builtin-smoke",
     max_samples_per_source: int = 128,
     include_answers: bool = False,
+    token_router_top_k: int | None = None,
+    router_oracle_method: str = "magnitude",
 ) -> None:
     manifest = run_smollm_recovery.remote(
         run_name=run_name,
@@ -164,5 +213,7 @@ def main(
         corpus_sources=corpus_sources,
         max_samples_per_source=max_samples_per_source,
         include_answers=include_answers,
+        token_router_top_k=token_router_top_k,
+        router_oracle_method=router_oracle_method,
     )
     print(json.dumps(manifest, indent=2, sort_keys=True))
