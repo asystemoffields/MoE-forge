@@ -51,7 +51,7 @@ def launch_background_job(options: JobLaunchOptions) -> dict[str, Any]:
         "status": "planned" if options.dry_run else "launched",
         "notes": [
             "Use this manifest to reconnect command output with remote Modal artifacts.",
-            "For Modal jobs, include --detach and explicit run names in the command.",
+            "For Modal jobs, prefer local entrypoints that call Modal .spawn() and print the remote artifact path.",
         ],
     }
     if not options.dry_run:
