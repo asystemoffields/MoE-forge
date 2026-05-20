@@ -22,7 +22,16 @@ volume = modal.Volume.from_name(VOLUME_NAME, create_if_missing=True)
 image = (
     modal.Image.debian_slim(python_version="3.11")
     .apt_install("git", "curl")
-    .pip_install("torch>=2.2", "transformers>=4.45", "safetensors>=0.4", "accelerate>=0.34", "datasets", "sentencepiece", "protobuf")
+    .pip_install(
+        "torch>=2.2",
+        "transformers>=4.45",
+        "safetensors>=0.4",
+        "accelerate>=0.34",
+        "datasets",
+        "sentencepiece",
+        "protobuf",
+        "pillow",
+    )
     .run_commands(
         "git clone --depth 1 https://github.com/huggingface/lighteval.git /opt/lighteval",
         "cd /opt/lighteval && pip install '.[accelerate,quantization,adapters]'",
