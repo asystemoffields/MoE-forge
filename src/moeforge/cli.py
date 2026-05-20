@@ -158,6 +158,11 @@ def build_parser() -> argparse.ArgumentParser:
     convert_parser.add_argument("--recover-steps", type=int, help="Recovery step count for planned recipes.")
     convert_parser.add_argument("--activation", default="silu", help="FFN activation: silu, gelu, or gelu_tanh.")
     convert_parser.add_argument("--token-router-top-k", type=int, help="Enable learned per-token top-k routing in the package.")
+    convert_parser.add_argument(
+        "--default-expert-mode",
+        choices=["all", "learned-router"],
+        help="Default inference mode for native AutoModel packages.",
+    )
     convert_parser.add_argument("--skip-source-model-copy", action="store_true", help="Reference the dense model path instead of copying it into the wrapper.")
     convert_parser.add_argument("--dry-run", action="store_true", help="Write plan, manifest, preflight, and tensor-shape reports without exporting a wrapper.")
     convert_parser.add_argument("--eval-smoke", action="store_true", help="Run deterministic dense-vs-carved smoke eval after wrapper export.")
@@ -353,6 +358,11 @@ def build_parser() -> argparse.ArgumentParser:
     wrapper_parser.add_argument("--copy-artifact", action="store_true", help="Copy the safetensors artifact into the wrapper directory.")
     wrapper_parser.add_argument("--copy-source-model", action="store_true", help="Copy the dense source checkpoint into the wrapper package.")
     wrapper_parser.add_argument("--token-router-top-k", type=int, help="Enable learned per-token top-k routing in the wrapper package.")
+    wrapper_parser.add_argument(
+        "--default-expert-mode",
+        choices=["all", "learned-router"],
+        help="Default inference mode for native AutoModel packages.",
+    )
     wrapper_parser.add_argument("--output-dir", type=Path, required=True, help="Wrapper package output directory.")
     wrapper_parser.add_argument("--print", action="store_true", help="Also print the wrapper config JSON.")
 
@@ -604,6 +614,7 @@ def _cmd_convert(args: argparse.Namespace) -> int:
             recover_steps=args.recover_steps,
             activation=args.activation,
             token_router_top_k=args.token_router_top_k,
+            default_expert_mode=args.default_expert_mode,
             copy_source_model=not args.skip_source_model_copy,
             dry_run=args.dry_run,
             eval_smoke=args.eval_smoke,
@@ -838,6 +849,7 @@ def _cmd_wrapper_export(args: argparse.Namespace) -> int:
         copy_artifact=args.copy_artifact,
         copy_source_model=args.copy_source_model,
         token_router_top_k=args.token_router_top_k,
+        default_expert_mode=args.default_expert_mode,
     )
     payload = config.to_dict()
     if args.print:

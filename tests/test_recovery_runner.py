@@ -67,9 +67,12 @@ def test_run_recovery_trains_tiny_wrapper_and_writes_checkpoints(tmp_path: Path)
     )
     recovered_config = json.loads((recovered_dir / "moeforge_config.json").read_text(encoding="utf-8"))
     assert export_report["updated_tensor_count"] > 0
+    assert export_report["tokenizer_assets"] == ["generation_config.json", "tokenizer_config.json"]
     assert recovered_config["artifact_path"] == "recovered-carved-experts.safetensors"
     assert (recovered_dir / "recovered-carved-experts.safetensors").exists()
     assert (recovered_dir / "recovery-export-report.json").exists()
+    assert (recovered_dir / "tokenizer_config.json").exists()
+    assert (recovered_dir / "generation_config.json").exists()
 
     validation = validate_recovered_wrapper(
         source_wrapper=package_dir,
@@ -297,6 +300,8 @@ def _write_tiny_llama_checkpoint(path: Path) -> Path:
     )
     model = transformers.LlamaForCausalLM(config)
     model.save_pretrained(path, safe_serialization=True)
+    (path / "tokenizer_config.json").write_text(json.dumps({"model_max_length": 16}), encoding="utf-8")
+    (path / "generation_config.json").write_text(json.dumps({"max_new_tokens": 4}), encoding="utf-8")
     return path
 
 

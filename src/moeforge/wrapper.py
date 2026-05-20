@@ -13,6 +13,26 @@ class WrapperError(RuntimeError):
     """Raised when a wrapper package cannot be exported or loaded."""
 
 
+TOKENIZER_ASSET_NAMES = {
+    "added_tokens.json",
+    "chat_template.jinja",
+    "generation_config.json",
+    "merges.txt",
+    "sentencepiece.bpe.model",
+    "special_tokens_map.json",
+    "spiece.model",
+    "tokenizer.json",
+    "tokenizer.model",
+    "tokenizer_config.json",
+    "vocab.json",
+}
+
+TOKENIZER_ASSET_GLOBS = (
+    "*.tiktoken",
+    "tokenization_*.py",
+)
+
+
 @dataclass(slots=True)
 class LayerWrapperConfig:
     layer: int
@@ -34,6 +54,7 @@ class WrapperConfig:
     router_plan_path: str | None
     token_router_top_k: int | None
     token_router_path: str | None
+    default_expert_mode: str | None
     activation: str
     expert_count: int
     layers: list[LayerWrapperConfig]
@@ -54,6 +75,7 @@ def export_wrapper_package(
     copy_artifact: bool = False,
     copy_source_model: bool = False,
     token_router_top_k: int | None = None,
+    default_expert_mode: str | None = None,
 ) -> WrapperConfig:
     manifest = _read_json(manifest_path)
     if not artifact_path.exists():
@@ -64,6 +86,8 @@ def export_wrapper_package(
         raise WrapperError(f"unsupported activation: {activation}")
     if token_router_top_k is not None and token_router_top_k <= 0:
         raise WrapperError("token_router_top_k must be positive")
+    if default_expert_mode is not None and default_expert_mode not in {"all", "learned-router"}:
+        raise WrapperError("default_expert_mode must be one of: all, learned-router")
 
     output_dir.mkdir(parents=True, exist_ok=True)
     local_manifest = output_dir / "carve-manifest.json"
@@ -84,6 +108,7 @@ def export_wrapper_package(
     source_model_ref = str(manifest.get("source_model", ""))
     if copy_source_model:
         source_model_ref = _copy_source_model(source_model_ref, output_dir=output_dir)
+        copy_tokenizer_assets_from_source(source_model_dir=output_dir / source_model_ref, output_dir=output_dir)
 
     config = WrapperConfig(
         format_version=1,
@@ -95,6 +120,7 @@ def export_wrapper_package(
         router_plan_path=local_router.name if local_router else None,
         token_router_top_k=token_router_top_k,
         token_router_path=None,
+        default_expert_mode=default_expert_mode,
         activation=activation,
         expert_count=int(manifest.get("experts") or 0),
         layers=_layer_configs(manifest),
@@ -122,6 +148,7 @@ def load_wrapper_config(config_path: Path) -> WrapperConfig:
         router_plan_path=payload.get("router_plan_path"),
         token_router_top_k=int(payload["token_router_top_k"]) if payload.get("token_router_top_k") is not None else None,
         token_router_path=payload.get("token_router_path"),
+        default_expert_mode=payload.get("default_expert_mode"),
         activation=str(payload.get("activation", "silu")),
         expert_count=int(payload["expert_count"]),
         layers=[
@@ -205,6 +232,32 @@ def _copy_source_model(source_model: str, *, output_dir: Path) -> str:
     return destination.name
 
 
+def copy_tokenizer_assets_from_source(*, source_model_dir: Path, output_dir: Path) -> list[str]:
+    """Copy tokenizer-sidecar files to the package root for AutoTokenizer loading."""
+
+    if not source_model_dir.is_dir():
+        return []
+    copied: list[str] = []
+    for source in _iter_tokenizer_assets(source_model_dir):
+        destination = output_dir / source.name
+        _copy_if_different(source, destination)
+        copied.append(source.name)
+    return sorted(copied)
+
+
+def _iter_tokenizer_assets(source_model_dir: Path) -> list[Path]:
+    assets: dict[str, Path] = {}
+    for name in TOKENIZER_ASSET_NAMES:
+        source = source_model_dir / name
+        if source.is_file():
+            assets[source.name] = source
+    for pattern in TOKENIZER_ASSET_GLOBS:
+        for source in source_model_dir.glob(pattern):
+            if source.is_file():
+                assets[source.name] = source
+    return [assets[name] for name in sorted(assets)]
+
+
 def _write_wrapper_readme(output_dir: Path, config: WrapperConfig) -> None:
     lines = [
         "# MoE Forge Wrapper Package",
@@ -227,6 +280,7 @@ def _write_wrapper_readme(output_dir: Path, config: WrapperConfig) -> None:
             f"Layers: `{', '.join(str(item.layer) for item in config.layers)}`",
             f"Source model: `{config.source_model}`",
             f"Token router top-k: `{config.token_router_top_k}`",
+            f"Default expert mode: `{config.default_expert_mode}`",
             "",
             "Load as a Transformers causal LM:",
             "",

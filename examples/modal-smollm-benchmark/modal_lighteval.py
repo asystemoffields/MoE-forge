@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import shlex
+import shutil
 import subprocess
 from typing import Literal
 
@@ -149,6 +150,7 @@ def _run_lighteval(
     use_chat_template: bool,
 ) -> dict[str, object]:
     output_dir.mkdir(parents=True, exist_ok=True)
+    previous_model_results = _model_result_paths(model)
     model_args = f"model_name={model},batch_size={batch_size}"
     if trust_remote_code:
         model_args += ",trust_remote_code=True"
@@ -172,6 +174,7 @@ def _run_lighteval(
     completed = subprocess.run(command, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False)
     (output_dir / "command.txt").write_text(shlex.join(command) + "\n", encoding="utf-8")
     (output_dir / "stdout.txt").write_text(completed.stdout, encoding="utf-8")
+    _collect_model_dir_outputs(model=model, output_dir=output_dir, previous_results=previous_model_results)
     json_outputs = [str(path) for path in output_dir.rglob("*.json")]
     canonical_results = _write_canonical_results(output_dir)
     return {
@@ -182,6 +185,27 @@ def _run_lighteval(
         "canonical_results": str(canonical_results) if canonical_results else None,
         "stdout_path": str(output_dir / "stdout.txt"),
     }
+
+
+def _model_result_paths(model: str) -> set[Path]:
+    model_dir = Path(model)
+    if not model_dir.is_dir():
+        return set()
+    return set(model_dir.glob("results_*.json"))
+
+
+def _collect_model_dir_outputs(*, model: str, output_dir: Path, previous_results: set[Path]) -> None:
+    model_dir = Path(model)
+    if not model_dir.is_dir():
+        return
+    for result in sorted(model_dir.glob("results_*.json")):
+        if result in previous_results:
+            continue
+        shutil.copy2(result, output_dir / result.name)
+        detail_name = result.name.removeprefix("results_").removesuffix(".json")
+        detail_dir = model_dir / detail_name
+        if detail_dir.is_dir():
+            shutil.copytree(detail_dir, output_dir / "details" / detail_name, dirs_exist_ok=True)
 
 
 def _write_canonical_results(output_dir: Path) -> Path | None:

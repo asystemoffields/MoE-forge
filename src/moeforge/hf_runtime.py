@@ -79,6 +79,7 @@ class MoEForgeConfig(_PretrainedConfig):
         router_plan_path: str | None = None,
         token_router_top_k: int | None = None,
         token_router_path: str | None = None,
+        default_expert_mode: str | None = None,
         activation: str = "silu",
         expert_count: int = 0,
         layers: list[dict[str, Any]] | None = None,
@@ -97,6 +98,7 @@ class MoEForgeConfig(_PretrainedConfig):
         self.router_plan_path = router_plan_path
         self.token_router_top_k = int(token_router_top_k) if token_router_top_k is not None else None
         self.token_router_path = token_router_path
+        self.default_expert_mode = default_expert_mode
         self.activation = activation
         self.expert_count = int(expert_count)
         self.layers = layers or []
@@ -128,6 +130,7 @@ class MoEForgeConfig(_PretrainedConfig):
             router_plan_path=wrapper_config.router_plan_path,
             token_router_top_k=wrapper_config.token_router_top_k,
             token_router_path=wrapper_config.token_router_path,
+            default_expert_mode=wrapper_config.default_expert_mode,
             activation=wrapper_config.activation,
             expert_count=wrapper_config.expert_count,
             layers=[item.to_dict() if hasattr(item, "to_dict") else _layer_to_dict(item) for item in wrapper_config.layers],
@@ -266,11 +269,13 @@ class MoEForgeCarvedMLPModule(_TorchModule):
             mask = top_indices == expert
             if not bool(mask.any().detach().cpu().item()):
                 continue
-            weight = torch.where(mask, top_values, torch.zeros_like(top_values)).sum(dim=-1)
+            selected = mask.any(dim=-1).to(dtype=hidden_states.dtype)
+            probability_weight = torch.where(mask, top_values, torch.zeros_like(top_values)).sum(dim=-1)
+            routing_weight = selected + probability_weight - probability_weight.detach()
             contribution = self._group_contribution(hidden_states, kind="expert", expert=expert)
             if contribution is None:
                 continue
-            weighted = contribution * weight.unsqueeze(-1)
+            weighted = contribution * routing_weight.unsqueeze(-1)
             output = weighted if output is None else output + weighted
         if output is None:
             raise MoEForgeHFError(f"token router found no runnable carved MLP tensors for layer {self.layer}")
@@ -382,6 +387,7 @@ class MoEForgeCarvedMLPModule(_TorchModule):
         return {
             "layer": self.layer,
             "top_k": self.token_router_top_k,
+            "routing_weighting": "binary_straight_through",
             "token_count": token_count,
             "experts": [int(key) for key in sorted(expert_token_counts, key=int)],
             "expert_token_counts": expert_token_counts,
@@ -454,6 +460,12 @@ class MoEForgeForCausalLM(_MoEForgeModelBase):
         package = Path(pretrained_model_name_or_path)
         resolved_config = config or MoEForgeConfig.from_package(package)
         default_experts = kwargs.pop("moeforge_default_experts", None)
+        expert_mode = kwargs.pop("moeforge_expert_mode", None) or resolved_config.default_expert_mode
+        default_experts = _default_experts_from_mode(
+            expert_mode,
+            config=resolved_config,
+            explicit_default_experts=default_experts,
+        )
         source_model = _resolve_source_model_ref(package, resolved_config.source_model)
         source_kwargs = _source_model_kwargs(kwargs)
         dense_model = _AutoModelForCausalLM.from_pretrained(source_model, *model_args, **source_kwargs)
@@ -525,6 +537,7 @@ def hf_config_payload_from_wrapper(wrapper_config: WrapperConfig) -> dict[str, A
         "moeforge_wrapper_config": config.moeforge_wrapper_config,
         "router_plan_path": config.router_plan_path,
         "source_model": config.source_model,
+        "default_expert_mode": config.default_expert_mode,
         "token_router_path": config.token_router_path,
         "token_router_top_k": config.token_router_top_k,
     }
@@ -632,6 +645,21 @@ def _default_experts_for_layer(
         selected = default_experts.get(layer)
         return [int(expert) for expert in selected] if selected is not None else None
     return [int(expert) for expert in default_experts]
+
+
+def _default_experts_from_mode(
+    expert_mode: str | None,
+    *,
+    config: MoEForgeConfig,
+    explicit_default_experts: dict[int, list[int]] | list[int] | None,
+) -> dict[int, list[int]] | list[int] | None:
+    if explicit_default_experts is not None:
+        return explicit_default_experts
+    if expert_mode is None or expert_mode == "learned-router":
+        return None
+    if expert_mode == "all":
+        return list(range(config.expert_count))
+    raise MoEForgeHFError("moeforge_expert_mode must be one of: all, learned-router")
 
 
 def _normalized_top_k(value: int | None, *, expert_count: int) -> int | None:

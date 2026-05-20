@@ -99,6 +99,10 @@ def test_export_wrapper_package_can_copy_source_model(tmp_path: Path) -> None:
     assert hf_payload["source_model"] == "source-model"
     assert (package_dir / "source-model" / "config.json").exists()
     assert (package_dir / "source-model" / "model.safetensors").exists()
+    assert (package_dir / "tokenizer.json").read_text(encoding="utf-8") == '{"tokenizer": true}'
+    assert json.loads((package_dir / "tokenizer_config.json").read_text(encoding="utf-8"))["model_max_length"] == 128
+    assert (package_dir / "generation_config.json").exists()
+    assert not (package_dir / "model.safetensors").exists()
 
 
 def test_export_wrapper_package_can_reexport_from_package_paths(tmp_path: Path) -> None:
@@ -161,6 +165,9 @@ def _write_checkpoint(path: Path) -> Path:
         },
         str(path / "model.safetensors"),
     )
+    (path / "tokenizer.json").write_text('{"tokenizer": true}', encoding="utf-8")
+    (path / "tokenizer_config.json").write_text(json.dumps({"model_max_length": 128}), encoding="utf-8")
+    (path / "generation_config.json").write_text(json.dumps({"max_new_tokens": 16}), encoding="utf-8")
     return path
 
 

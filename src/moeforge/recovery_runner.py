@@ -7,7 +7,7 @@ from typing import Any
 
 from .hf_runtime import MoEForgeCarvedMLPModule, MoEForgeConfig, replace_hf_mlp_modules
 from .recovery import compare_eval_batch_manifests
-from .wrapper import load_wrapper_config
+from .wrapper import copy_tokenizer_assets_from_source, load_wrapper_config
 
 
 class RecoveryRunError(RuntimeError):
@@ -213,6 +213,10 @@ def export_recovered_wrapper(
         raise RecoveryRunError("recovery checkpoint did not contain carved tensor or router parameters to export")
 
     _copy_wrapper_scaffold(source_dir=wrapper_dir, output_dir=output_dir, skip_files={source_artifact.name})
+    tokenizer_assets = copy_tokenizer_assets_from_source(
+        source_model_dir=_resolve_package_path(output_dir, wrapper_config.source_model),
+        output_dir=output_dir,
+    )
     artifact_path = output_dir / artifact_name
     if artifact_path.exists():
         artifact_path.unlink()
@@ -256,6 +260,7 @@ def export_recovered_wrapper(
         "updated_tensors": updated,
         "updated_router_tensor_count": len(updated_router),
         "updated_router_tensors": updated_router,
+        "tokenizer_assets": tokenizer_assets,
         "wrapper_config": str(output_dir / "moeforge_config.json"),
     }
     _write_json(output_dir / "recovery-export-report.json", report)

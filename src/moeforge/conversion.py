@@ -41,6 +41,7 @@ class ConversionRunOptions:
     recover_steps: int | None = None
     activation: str = "silu"
     token_router_top_k: int | None = None
+    default_expert_mode: str | None = None
     copy_source_model: bool = True
     dry_run: bool = False
     eval_smoke: bool = False
@@ -181,6 +182,7 @@ def run_conversion(options: ConversionRunOptions) -> dict[str, Any]:
         copy_artifact=True,
         copy_source_model=options.copy_source_model,
         token_router_top_k=options.token_router_top_k,
+        default_expert_mode=options.default_expert_mode,
     )
     artifacts["wrapper"] = str(wrapper_dir)
     _stage(
@@ -191,6 +193,7 @@ def run_conversion(options: ConversionRunOptions) -> dict[str, Any]:
             "wrapper": str(wrapper_dir),
             "layer_count": len(wrapper_config.layers),
             "token_router_top_k": wrapper_config.token_router_top_k,
+            "default_expert_mode": wrapper_config.default_expert_mode,
             "copy_source_model": options.copy_source_model,
         },
     )
@@ -521,6 +524,7 @@ def _options_payload(options: ConversionRunOptions) -> dict[str, Any]:
         "recover_steps": options.recover_steps,
         "activation": options.activation,
         "token_router_top_k": options.token_router_top_k,
+        "default_expert_mode": options.default_expert_mode,
         "copy_source_model": options.copy_source_model,
         "eval_smoke": options.eval_smoke,
         "eval_expert_modes": options.eval_expert_modes,
@@ -573,6 +577,8 @@ def _reproduction_commands(options: ConversionRunOptions, *, output_dir: Path) -
         parts.extend(["--shared-ratio", str(options.shared_ratio)])
     if options.token_router_top_k is not None:
         parts.extend(["--token-router-top-k", str(options.token_router_top_k)])
+    if options.default_expert_mode is not None:
+        parts.extend(["--default-expert-mode", options.default_expert_mode])
     if options.eval_smoke:
         parts.append("--eval-smoke")
     if options.recover:

@@ -32,6 +32,8 @@ def test_convert_cli_builds_native_wrapper_package(tmp_path: Path) -> None:
             "0.25",
             "--token-router-top-k",
             "1",
+            "--default-expert-mode",
+            "all",
             "--recover",
             "--recover-steps",
             "1",
@@ -55,11 +57,13 @@ def test_convert_cli_builds_native_wrapper_package(tmp_path: Path) -> None:
     assert report["preflight"]["status"] == "ready"
     assert report["publish_readiness"]["status"] == "ready"
     assert report["artifacts"]["recovered_wrapper"] == str(run_dir / "recovery-experiment" / "recovered-wrapper")
+    assert report["options"]["default_expert_mode"] == "all"
     assert (run_dir / "publish-readiness.json").exists()
     assert (run_dir / "recovery-experiment" / "recovered-wrapper" / "config.json").exists()
     assert (run_dir / "wrapper" / "source-model" / "config.json").exists()
     assert (run_dir / "recovery-experiment" / "recovered-wrapper" / "MODEL_CARD.md").exists()
     assert loaded.config.model_type == "moeforge_carved_moe"
+    assert loaded.config.default_expert_mode == "all"
 
 
 def test_convert_dry_run_reports_next_artifacts(tmp_path: Path) -> None:

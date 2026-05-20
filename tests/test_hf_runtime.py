@@ -117,6 +117,27 @@ def test_hf_carved_mlp_module_runs_learned_token_router(tmp_path: Path) -> None:
     assert torch.allclose(routed, selected, atol=1e-5)
 
 
+def test_hf_token_router_top_k_all_preserves_carved_sum(tmp_path: Path) -> None:
+    transformers = pytest.importorskip("transformers")
+    model_dir = _write_tiny_llama_checkpoint(tmp_path / "tiny-llama", transformers=transformers)
+    package_dir = _write_wrapper_package_from_checkpoint(
+        tmp_path,
+        model_dir,
+        layers=[0],
+        intermediate_size=16,
+        shared_channels=4,
+        expert_channels=[4, 4, 4],
+        token_router_top_k=3,
+    )
+    module = MoEForgeCarvedMLPModule.from_package(package_dir, layer=0)
+    x = torch.randn(2, 3, 8)
+
+    routed = module(x)
+
+    assert torch.allclose(routed, module.forward_all(x), atol=1e-5)
+    assert module.last_router_summary["routing_weighting"] == "binary_straight_through"
+
+
 def test_replace_hf_mlp_modules_preserves_tiny_llama_outputs(tmp_path: Path) -> None:
     transformers = pytest.importorskip("transformers")
     model_dir = _write_tiny_llama_checkpoint(tmp_path / "tiny-llama", transformers=transformers)
@@ -200,6 +221,42 @@ def test_auto_model_loads_wrapper_package_with_remote_code_stubs(tmp_path: Path)
     assert [item.layer for item in moe.replacement_report.replaced] == [0, 1]
 
 
+def test_auto_model_can_default_to_all_experts_with_router_packaged(tmp_path: Path) -> None:
+    transformers = pytest.importorskip("transformers")
+    model_dir = _write_tiny_llama_checkpoint(tmp_path / "tiny-llama", transformers=transformers)
+    package_dir = _write_wrapper_package_from_checkpoint(
+        tmp_path,
+        model_dir,
+        layers=[0, 1],
+        intermediate_size=16,
+        shared_channels=4,
+        expert_channels=[4, 4, 4],
+        copy_source_model=True,
+        token_router_top_k=1,
+        default_expert_mode="all",
+    )
+    dense = transformers.AutoModelForCausalLM.from_pretrained(model_dir)
+    moe = transformers.AutoModelForCausalLM.from_pretrained(package_dir, trust_remote_code=True)
+    routed = transformers.AutoModelForCausalLM.from_pretrained(
+        package_dir,
+        trust_remote_code=True,
+        moeforge_expert_mode="learned-router",
+    )
+    dense.eval()
+    moe.eval()
+    routed.eval()
+
+    with torch.no_grad():
+        input_ids = torch.tensor([[1, 2, 3, 4]], dtype=torch.long)
+        dense_logits = dense(input_ids=input_ids).logits
+        moe_logits = moe(input_ids=input_ids).logits
+
+    assert moe.config.default_expert_mode == "all"
+    assert moe.replacement_report.replaced[0].default_experts == [0, 1, 2]
+    assert routed.replacement_report.replaced[0].default_experts is None
+    assert torch.allclose(moe_logits, dense_logits, atol=1e-5)
+
+
 def _write_wrapper_package(tmp_path: Path, *, layers: list[int] | None = None) -> Path:
     model = _write_checkpoint(tmp_path / "model", layers=layers or [0])
     manifest_path = _write_manifest(tmp_path, model, layers=layers or [0])
@@ -232,6 +289,7 @@ def _write_wrapper_package_from_checkpoint(
     expert_channels: list[int],
     copy_source_model: bool = False,
     token_router_top_k: int | None = None,
+    default_expert_mode: str | None = None,
 ) -> Path:
     manifest_path = _write_manifest(
         tmp_path,
@@ -251,6 +309,7 @@ def _write_wrapper_package_from_checkpoint(
         copy_artifact=True,
         copy_source_model=copy_source_model,
         token_router_top_k=token_router_top_k,
+        default_expert_mode=default_expert_mode,
     )
     return package_dir
 
