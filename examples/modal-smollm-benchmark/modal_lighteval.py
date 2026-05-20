@@ -49,16 +49,20 @@ image = (
             "text=text.replace('        frozen=False,\\n',''); "
             "text=text.replace('            output_regex=output_regex,\\n',''); "
             "text=text.replace('            frozen=frozen,\\n',''); "
+            "text=text.replace('from lighteval.tasks.default_prompts import LETTER_INDICES\\n', "
+            "'from lighteval.tasks.default_prompts import LETTER_INDICES\\n"
+            "from lighteval.tasks import default_prompts as _moeforge_default_prompts\\n'); "
             "text += '\\nfor _moeforge_task in TASKS_TABLE:\\n"
             "    _moeforge_task.trust_dataset = True\\n"
             "    if isinstance(_moeforge_task.prompt_function, str):\\n"
-            "        _moeforge_task.prompt_function = globals()[_moeforge_task.prompt_function]\\n'; "
+            "        _moeforge_prompt_name = _moeforge_task.prompt_function\\n"
+            "        _moeforge_task.prompt_function = globals().get(_moeforge_prompt_name) or getattr(_moeforge_default_prompts, _moeforge_prompt_name)\\n'; "
             "p.write_text(text)\""
         ),
         (
             "python -c \"from pathlib import Path; text=Path('/opt/lighteval_tasks.py').read_text(); "
             "assert 'output_regex' not in text and 'frozen=' not in text and "
-            "'_moeforge_task.prompt_function = globals()[_moeforge_task.prompt_function]' in text\""
+            "'_moeforge_default_prompts' in text\""
         ),
         "pip install git+https://github.com/asystemoffields/MoE-forge.git",
     )
