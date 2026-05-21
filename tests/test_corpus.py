@@ -114,3 +114,27 @@ def test_load_dataset_noninteractive_falls_back_for_old_datasets() -> None:
             "split": "validation",
         },
     ]
+
+
+def test_general_text_source_and_formatter() -> None:
+    from moeforge.corpus import _expand_sources, _format_text
+
+    assert _format_text({"text": "x" * 80}, False) is not None
+    assert _format_text({"text": "short"}, False) is None
+    sources = _expand_sources(("wikitext",), default_split="train")
+    assert sources[0].name == "wikitext" and sources[0].formatter == "text"
+    # general + builtin mix expands cleanly
+    mixed = _expand_sources(("wikitext", "builtin-smoke"), default_split="train")
+    assert [s.name for s in mixed] == ["wikitext", "builtin-smoke"]
+
+
+def test_general_text_source_and_formatter() -> None:
+    from moeforge.corpus import _expand_sources, _format_text
+
+    assert _format_text({"text": "x" * 80}, False) is not None
+    assert _format_text({"text": "short"}, False) is None
+    assert _format_text({"text": ""}, False) is None
+    sources = _expand_sources(("wikitext",), default_split="train")
+    assert sources[0].name == "wikitext" and sources[0].formatter == "text"
+    mixed = _expand_sources(("wikitext", "builtin-smoke"), default_split="train")
+    assert [s.name for s in mixed] == ["wikitext", "builtin-smoke"]

@@ -73,6 +73,17 @@ SMOLLM_BENCHMIX: tuple[DatasetSource, ...] = (
 )
 
 
+# General free-text sources for clean (uncontaminated) recovery training at scale.
+GENERAL_SOURCES: dict[str, DatasetSource] = {
+    "wikitext": DatasetSource(
+        name="wikitext",
+        candidates=("Salesforce/wikitext", "wikitext"),
+        config="wikitext-103-raw-v1",
+        formatter="text",
+    ),
+}
+
+
 BUILTIN_SMOKE_TEXTS: tuple[str, ...] = (
     "Question: Which object is used to write on a chalkboard?\nChoices:\nA. spoon\nB. chalk\nC. blanket\nD. river",
     "Question: If rain falls all night, what is likely to be wet in the morning?\nChoices:\nA. sidewalk\nB. flame\nC. desert map\nD. candle",
@@ -191,6 +202,17 @@ def _expand_sources(raw_sources: tuple[str, ...], *, default_split: str) -> list
             )
         elif name == "builtin-smoke":
             expanded.append(DatasetSource(name="builtin-smoke", candidates=(), formatter="builtin", split=default_split))
+        elif name in GENERAL_SOURCES:
+            source = GENERAL_SOURCES[name]
+            expanded.append(
+                DatasetSource(
+                    name=source.name,
+                    candidates=source.candidates,
+                    formatter=source.formatter,
+                    config=source.config,
+                    split=source.split or default_split,
+                )
+            )
         else:
             matched = [source for source in SMOLLM_BENCHMIX if source.name == name]
             if not matched:
@@ -372,12 +394,22 @@ def _formatter(name: str) -> Callable[[dict[str, Any], bool], str | None]:
                 "commonsense_qa": _format_commonsense_qa,
                 "winogrande": _format_winogrande,
                 "openbookqa": _format_openbookqa,
+                "text": _format_text,
             }
         )
     try:
         return FORMATTERS[name]
     except KeyError as exc:
         raise CorpusBuildError(f"unknown corpus formatter: {name}") from exc
+
+
+def _format_text(row: dict[str, Any], include_answer: bool) -> str | None:
+    """General free-text source (e.g. wikitext): use the raw text field, skip short/empty rows.
+    Uncontaminated by the multiple-choice benchmark suite, so suitable for clean recovery."""
+    text = _clean(row.get("text") or row.get("content") or row.get("page"))
+    if not text or len(text) < 64:
+        return None
+    return text
 
 
 def _format_piqa(row: dict[str, Any], include_answer: bool) -> str | None:

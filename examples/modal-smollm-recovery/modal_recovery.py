@@ -68,6 +68,7 @@ def run_smollm_recovery(
     include_answers: bool,
     token_router_top_k: int | None,
     router_oracle_method: str,
+    eval_max_samples: int,
 ) -> dict[str, object]:
     from moeforge.corpus import CorpusBuildOptions, build_recovery_corpus
     from moeforge.recovery_experiment import run_recovery_experiment
@@ -93,6 +94,11 @@ def run_smollm_recovery(
             split="train",
         )
     )
+    # Decouple eval size from the (now potentially large) training corpus: eval on a fixed
+    # small subset so the before/after eval stays fast as we scale training tokens/steps.
+    eval_file = run_dir / "eval.txt"
+    samples = [s for s in train_file.read_text(encoding="utf-8").split("\n\n") if s.strip()]
+    eval_file.write_text("\n\n".join(samples[: max(1, eval_max_samples)]) + "\n", encoding="utf-8")
     config = {
         "model": source_model,
         "wrapper": str(effective_wrapper),
@@ -103,7 +109,7 @@ def run_smollm_recovery(
             "sequence_length": sequence_length,
         },
         "eval": {
-            "text_file": str(train_file),
+            "text_file": str(eval_file),
             "sequence_length": sequence_length,
             "expert_modes": ["all", "learned-router"],
             "device": "cuda",
@@ -220,6 +226,7 @@ def main(
     include_answers: bool = False,
     token_router_top_k: int | None = None,
     router_oracle_method: str = "magnitude",
+    eval_max_samples: int = 256,
     resume_from_run: str | None = None,
     spawn: bool = False,
 ) -> None:
@@ -245,6 +252,7 @@ def main(
         "include_answers": include_answers,
         "token_router_top_k": token_router_top_k,
         "router_oracle_method": router_oracle_method,
+        "eval_max_samples": eval_max_samples,
     }
     if spawn:
         call = target.spawn(**kwargs)
