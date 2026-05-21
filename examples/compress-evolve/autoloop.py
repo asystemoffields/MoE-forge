@@ -96,6 +96,8 @@ def main() -> None:
             "candidate_path": str(cand),
             "bytes": int(res["bytes"]), "full_bytes": int(res.get("full_bytes", 0)),
             "ratio": float(res["ratio"]), "nll": float(res["nll"]),
+            "resident_bytes": int(res.get("resident_bytes", res.get("full_bytes", 0))),
+            "resident_ratio": float(res.get("resident_ratio", 1.0)),
             "baseline_nll": float(res.get("baseline_nll", 0.0)),
             "nll_delta": float(res.get("nll_delta", 0.0)),
             "worst_domain_delta": float(res.get("worst_domain_delta", res.get("nll_delta", 0.0))),

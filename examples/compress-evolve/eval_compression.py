@@ -131,6 +131,10 @@ def main() -> None:
         t0 = time.perf_counter()
         rebuilt = decompress(bytes(artifact)).eval()
         decode_seconds = time.perf_counter() - t0
+        # Resident bytes = what the runnable model HOLDS (the real local-deploy memory + bandwidth/
+        # speed proxy). Compute-in-compressed-form methods hold packed weights -> small; methods that
+        # dequantize to fp32 hold the full model -> large. This is the axis that matters for the mission.
+        resident_bytes = sum(t.numel() * t.element_size() for t in rebuilt.state_dict().values())
         meth = {d: seq_nlls(rebuilt, b, torch) for d, b in domains.items()}
 
         base_mean = {d: sum(v) / len(v) for d, v in base.items()}
@@ -147,6 +151,8 @@ def main() -> None:
             "bytes": shipped,
             "full_bytes": int(full_bytes),
             "ratio": round(full_bytes / max(shipped, 1), 3),
+            "resident_bytes": int(resident_bytes),
+            "resident_ratio": round(full_bytes / max(resident_bytes, 1), 3),
             "nll": round(nll, 4),
             "baseline_nll": round(baseline_nll, 4),
             "nll_delta": round(nll - baseline_nll, 4),

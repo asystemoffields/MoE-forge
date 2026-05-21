@@ -42,6 +42,18 @@ def decompress(artifact: bytes) -> model                      # returns a runnab
 - `decompress` must return a runnable `nn.Module` (rebuild via `AutoConfig.for_model` + `from_config`,
   exactly like the seeds). Be deterministic; return finite weights.
 
+## Run in compressed form (RESIDENT memory is now a primary axis)
+`decompress` must return a model that HOLDS its weights compressed and dequantizes per layer in
+`forward` -- it must NOT inflate to a full fp32 model. The verifier measures `resident_bytes` (what
+the runnable model holds in memory); for bandwidth-bound local decode that is both the memory
+footprint AND the first-order speed proxy. A method that dequantizes everything to fp32 LOSES this
+axis (the int8 disk seed is 1.65x on disk but 0.83x resident -- *more* RAM than the bf16 original).
+Use `examples/compress-evolve/packed.py`: `Int4Linear` (holds int4-packed weight, dequant in
+forward) or `CompressedLinear(state, dequant_fn, out, in, bias)` for arbitrary formats. In
+decompress: build the model with `from_config`, `packed.replace_linears(model, build)` to swap each
+nn.Linear for your holder, keep embeddings/norms at bf16, and return `model.to(torch.bfloat16)`.
+The prize is matching the best NLL while running in low resident memory.
+
 ## Performance & robustness (REQUIRED — these sank EVERY gen-1 attempt)
 - **Vectorize everything in numpy. NO per-element Python loops** over weights or symbols — a
   Python loop over millions of values times out. Bit-pack with `np.packbits`/`np.unpackbits` or

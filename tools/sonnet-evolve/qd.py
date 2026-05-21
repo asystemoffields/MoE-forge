@@ -58,7 +58,7 @@ def insert(archive: dict, record: dict) -> tuple[bool, str]:
     return improved, cell
 
 
-FRONTIER_OBJECTIVES = ("bytes", "nll_delta", "worst_domain_delta", "decode_seconds")
+FRONTIER_OBJECTIVES = ("resident_bytes", "nll_delta", "worst_domain_delta", "decode_seconds")
 
 
 def _obj(rec: dict, key: str) -> float:
@@ -106,20 +106,23 @@ def brief(archive: dict) -> str:
     empty_bands = [b for b in all_bands if b not in occ]
     fams = sorted(families(archive))
 
-    lines = ["FRONTIER (minimize ALL axes: ratio/bytes, NLL-delta, worst-domain delta=robustness, decode seconds):"]
+    lines = ["FRONTIER (minimize ALL: RESIDENT bytes = RAM-to-run [the key local-deploy axis, also the "
+             "bandwidth/speed proxy], NLL-delta, worst-domain delta=robustness, decode seconds; disk shown for ref):"]
     for p in fr:
-        lines.append(f"  - {p['ratio']:.2f}x  NLL{p['nll_delta']:+.3f}  worst-domain{_obj(p, 'worst_domain_delta'):+.3f}  "
-                     f"decode {_obj(p, 'decode_seconds'):.1f}s  [{p['family']}]  ({p['name']})")
+        lines.append(f"  - resident {p.get('resident_ratio', '?')}x  NLL{p['nll_delta']:+.3f}  "
+                     f"worst-domain{_obj(p, 'worst_domain_delta'):+.3f}  decode {_obj(p, 'decode_seconds'):.1f}s  "
+                     f"(disk {p['ratio']:.2f}x)  [{p['family']}]  ({p['name']})")
     lines.append("")
     lines.append(f"FAMILIES ALREADY TRIED ({len(fams)}): {', '.join(fams)}")
     lines.append(f"EMPTY COMPRESSION-RATIO BANDS (no method here yet): {', '.join(empty_bands) or 'none'}")
     lines.append("")
     lines.append("YOUR JOB: propose a method that EITHER (a) lands in an empty band above, OR "
-                 "(b) Pareto-beats a frontier point on ANY axis -- smaller, lower NLL, more robust "
-                 "across prose/code/knowledge (lower worst-domain delta), or faster to decode -- using "
-                 "a technique from a family NOT in the tried list, or a novel combination. Choose the "
-                 "approach yourself; do not reuse an existing family unless you change it fundamentally. "
-                 "Tag your method with a short family name.")
+                 "(b) Pareto-beats a frontier point on ANY axis -- lower RESIDENT memory (the model must "
+                 "RUN holding weights compressed, NOT dequantize to fp32), lower NLL, more robust across "
+                 "prose/code/knowledge, or faster to decode -- using a technique from a family NOT in the "
+                 "tried list, or a novel combination. The big prize: match the best NLL while running in "
+                 "low resident memory. Choose the approach yourself; do not reuse an existing family "
+                 "unless you change it fundamentally. Tag your method with a short family name.")
     return "\n".join(lines)
 
 
