@@ -140,3 +140,27 @@ def test_profile_options_defaults() -> None:
     assert options.sequence_length == 512
     assert options.experts == 8
     assert options.document_top_k_channels == 8
+
+
+def test_coactivation_assignment_clusters_cofiring_channels() -> None:
+    import numpy as np
+
+    # Two co-activation blocks: channels 0-3 fire together, 4-7 fire together.
+    matrix = np.zeros((8, 8))
+    matrix[0:4, 0:4] = 250.0
+    matrix[4:8, 4:8] = 250.0
+    stats = ChannelStats(width=8, count=20, sum_abs=[1.0] * 8, coactivation=matrix, track_coactivation=True)
+
+    assignment = stats.assign_experts(experts=2, shared_ratio=0.0, method="coactivation")
+
+    assert assignment["method"] == "shared_top_mean_abs_then_coactivation_balanced"
+    experts = [set(item["channels"]) for item in assignment["experts"]]
+    assert {0, 1, 2, 3} in experts and {4, 5, 6, 7} in experts  # co-firing channels grouped
+    assert sorted(len(item["channels"]) for item in assignment["experts"]) == [4, 4]  # balanced
+
+
+def test_assignment_falls_back_to_magnitude_without_coactivation() -> None:
+    # method=coactivation but no matrix accumulated -> graceful fallback to the default.
+    stats = ChannelStats(width=4, count=10, sum_abs=[4.0, 3.0, 2.0, 1.0])
+    assignment = stats.assign_experts(experts=2, shared_ratio=0.0, method="coactivation")
+    assert assignment["method"] == "shared_top_mean_abs_then_greedy_balance"

@@ -29,6 +29,7 @@ class ProfileOptions:
     document_top_k_channels: int = 8
     experts: int = 8
     shared_ratio: float = 0.25
+    assignment_method: str = "magnitude"  # "magnitude" | "coactivation" (balanced co-activation clustering)
 
 
 @dataclass(slots=True)
@@ -40,6 +41,8 @@ class ChannelStats:
     positive: list[int] = field(default_factory=list)
     active: list[int] = field(default_factory=list)
     threshold: float = 0.0
+    track_coactivation: bool = False
+    coactivation: Any = None  # numpy [width, width] sum of |a|^T|a| when tracking; for grouping
 
     def update(self, values: Any) -> None:
         rows = _to_channel_rows(values)
@@ -61,6 +64,14 @@ class ChannelStats:
                     self.positive[index] += 1
                 if abs_value > self.threshold:
                     self.active[index] += 1
+
+        if self.track_coactivation:
+            import numpy as np
+
+            batch = np.abs(np.asarray(rows, dtype=np.float64))  # [n_tokens, width]
+            if self.coactivation is None:
+                self.coactivation = np.zeros((width, width), dtype=np.float64)
+            self.coactivation += batch.T @ batch
 
     def to_report(self, *, include_vectors: bool, top_k_channels: int) -> dict[str, Any]:
         if self.count == 0 or self.width is None:
@@ -108,7 +119,7 @@ class ChannelStats:
             }
         return report
 
-    def assign_experts(self, *, experts: int, shared_ratio: float) -> dict[str, Any]:
+    def assign_experts(self, *, experts: int, shared_ratio: float, method: str = "magnitude") -> dict[str, Any]:
         if self.count == 0 or self.width is None:
             return {
                 "available": False,
@@ -124,17 +135,21 @@ class ChannelStats:
         shared_count = min(self.width, int(round(self.width * shared_ratio)))
         shared = ranked[:shared_count]
         routed = ranked[shared_count:]
-        expert_channels: list[list[int]] = [[] for _ in range(experts)]
-        expert_scores = [0.0 for _ in range(experts)]
 
-        for channel in routed:
-            expert = min(range(experts), key=lambda index: (expert_scores[index], len(expert_channels[index])))
-            expert_channels[expert].append(channel)
-            expert_scores[expert] += mean_abs[channel]
+        if method == "coactivation" and self.coactivation is not None and routed:
+            expert_channels, method_name = self._coactivation_clusters(routed, experts)
+        else:
+            expert_channels = [[] for _ in range(experts)]
+            expert_scores = [0.0 for _ in range(experts)]
+            for channel in routed:
+                expert = min(range(experts), key=lambda index: (expert_scores[index], len(expert_channels[index])))
+                expert_channels[expert].append(channel)
+                expert_scores[expert] += mean_abs[channel]
+            method_name = "shared_top_mean_abs_then_greedy_balance"
 
         return {
             "available": True,
-            "method": "shared_top_mean_abs_then_greedy_balance",
+            "method": method_name,
             "width": self.width,
             "shared_ratio": shared_ratio,
             "shared_channels": sorted(shared),
@@ -143,11 +158,28 @@ class ChannelStats:
                     "expert": index,
                     "channels": sorted(channels),
                     "channel_count": len(channels),
-                    "score_sum": expert_scores[index],
+                    "score_sum": sum(mean_abs[c] for c in channels),
                 }
                 for index, channels in enumerate(expert_channels)
             ],
         }
+
+    def _coactivation_clusters(self, routed: list[int], experts: int) -> tuple[list[list[int]], str]:
+        """Balanced equal-size clustering of routed channels by their co-activation profile
+        (rows of the accumulated |a|^T|a| matrix). Groups channels that fire together — the
+        validated grouping improvement over magnitude/importance balancing."""
+        import numpy as np
+
+        from .grouping import balanced_assign
+
+        index = np.asarray(routed)
+        features = np.asarray(self.coactivation)[np.ix_(index, index)]
+        features = features / (np.linalg.norm(features, axis=1, keepdims=True) + 1e-12)
+        labels = balanced_assign(features, experts, rng=np.random.default_rng(0))
+        expert_channels: list[list[int]] = [[] for _ in range(experts)]
+        for position, channel in enumerate(routed):
+            expert_channels[int(labels[position])].append(channel)
+        return expert_channels, "shared_top_mean_abs_then_coactivation_balanced"
 
     def _ensure_width(self, width: int) -> None:
         if self.width is None:
@@ -222,6 +254,7 @@ class ActivationProfile:
     documents: list[DocumentStats] = field(default_factory=list)
     missing_modules: list[dict[str, Any]] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    track_coactivation: bool = False
     _current_document_index: int | None = field(default=None, init=False)
 
     def begin_document(self, *, index: int, text: str) -> None:
@@ -234,7 +267,7 @@ class ActivationProfile:
     def update(self, module_name: str, values: Any, *, threshold: float) -> None:
         stats = self.module_stats.get(module_name)
         if stats is None:
-            stats = ChannelStats(threshold=threshold)
+            stats = ChannelStats(threshold=threshold, track_coactivation=self.track_coactivation)
             self.module_stats[module_name] = stats
         stats.update(values)
         if self._current_document_index is not None:
@@ -254,6 +287,7 @@ class ActivationProfile:
         experts: int,
         shared_ratio: float,
         document_pool_size: int | None = None,
+        assignment_method: str = "magnitude",
     ) -> dict[str, Any]:
         document_pool_size = document_pool_size or min(2, experts)
         return {
@@ -266,7 +300,9 @@ class ActivationProfile:
                 name: {
                     **stats.to_report(include_vectors=include_vectors, top_k_channels=top_k_channels),
                     "target": self.module_targets.get(name),
-                    "assignment": stats.assign_experts(experts=experts, shared_ratio=shared_ratio),
+                    "assignment": stats.assign_experts(
+                        experts=experts, shared_ratio=shared_ratio, method=assignment_method
+                    ),
                 }
                 for name, stats in sorted(self.module_stats.items())
             },
@@ -378,6 +414,7 @@ def profile_hf_model(
         sequence_length=options.sequence_length,
         module_targets=module_targets,
         warnings=list(info.warnings),
+        track_coactivation=(options.assignment_method == "coactivation"),
     )
 
     hooks = []
@@ -422,6 +459,7 @@ def profile_hf_model(
         experts=options.experts,
         shared_ratio=options.shared_ratio,
         document_pool_size=min(options.experts, max(1, options.top_k_channels // 8)),
+        assignment_method=options.assignment_method,
     )
 
 

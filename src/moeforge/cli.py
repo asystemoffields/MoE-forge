@@ -431,6 +431,14 @@ def build_parser() -> argparse.ArgumentParser:
     profile_parser.add_argument("--top-k-channels", type=int, default=32, help="Top channels to include per module.")
     profile_parser.add_argument("--document-top-k-channels", type=int, default=8, help="Top channels to include per document/module.")
     profile_parser.add_argument("--experts", type=int, default=8, help="Experts per profiled FFN module for assignment suggestions.")
+    profile_parser.add_argument(
+        "--assignment-method",
+        choices=["magnitude", "coactivation"],
+        default="magnitude",
+        help="Channel->expert grouping: 'magnitude' balances importance (default); 'coactivation' "
+        "clusters co-firing channels (balanced, ~4-5%% better reconstruction; accumulates a "
+        "co-activation matrix during profiling).",
+    )
     profile_parser.add_argument("--shared-ratio", type=float, default=0.25, help="Shared-channel ratio for assignment suggestions.")
     profile_parser.add_argument("--include-vectors", action="store_true", help="Include full per-channel vectors in JSON.")
     profile_parser.add_argument("--include-document-vectors", action="store_true", help="Include full per-document per-channel vectors in JSON.")
@@ -972,6 +980,7 @@ def _cmd_profile(args: argparse.Namespace) -> int:
         document_top_k_channels=args.document_top_k_channels,
         experts=args.experts,
         shared_ratio=args.shared_ratio,
+        assignment_method=args.assignment_method,
     )
     payload = profile_hf_model(args.model, texts, options)
     _write_json(args.output, payload)
