@@ -1,0 +1,50 @@
+[
+  {
+    "name": "gen3_rotquant",
+    "family": "gen3_rotquant",
+    "generation": "seed",
+    "candidate_path": "examples\\compress-evolve\\candidates\\gen3_rotquant.py",
+    "bytes": 78355622,
+    "full_bytes": 269030016,
+    "ratio": 3.433,
+    "nll": 3.6954,
+    "baseline_nll": 2.8231,
+    "nll_delta": 0.8723
+  },
+  {
+    "name": "gen3_sparse",
+    "family": "gen3_sparse",
+    "generation": "seed",
+    "candidate_path": "examples\\compress-evolve\\candidates\\gen3_sparse.py",
+    "bytes": 98176185,
+    "full_bytes": 269030016,
+    "ratio": 2.74,
+    "nll": 3.1109,
+    "baseline_nll": 2.8231,
+    "nll_delta": 0.2878
+  },
+  {
+    "name": "evolved_gptq4",
+    "family": "evolved_gptq4",
+    "generation": "seed",
+    "candidate_path": "examples\\compress-evolve\\candidates\\evolved_gptq4.py",
+    "bytes": 111405974,
+    "full_bytes": 269030016,
+    "ratio": 2.415,
+    "nll": 2.9163,
+    "baseline_nll": 2.8231,
+    "nll_delta": 0.0932
+  },
+  {
+    "name": "noop",
+    "family": "noop",
+    "generation": "seed",
+    "candidate_path": "examples\\compress-evolve\\seeds\\noop.py",
+    "bytes": 269138207,
+    "full_bytes": 269030016,
+    "ratio": 1.0,
+    "nll": 2.8231,
+    "baseline_nll": 2.8231,
+    "nll_delta": 0.0
+  }
+]

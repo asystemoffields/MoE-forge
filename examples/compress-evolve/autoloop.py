@@ -104,7 +104,8 @@ def main() -> None:
         print(f"  {flag:9} {cand.name:32} [{fam}]  {rec['ratio']:.2f}x  NLL{rec['nll_delta']:+.3f}  -> {cell}")
 
     qd.save(args.archive, archive)
-    print("\n--- frontier ---")
+    kept = qd.preserve(archive, REPO, REPO / "examples" / "compress-evolve" / "frontier")
+    print(f"\n--- frontier (code of {kept} methods preserved to examples/compress-evolve/frontier/) ---")
     for p in qd.frontier(archive):
         print(f"  {p['ratio']:.2f}x  NLL{p['nll_delta']:+.3f}  [{p['family']}]  {p['name']}")
 

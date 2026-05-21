@@ -19,7 +19,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 from pathlib import Path
+
+REPO = Path(__file__).resolve().parents[2]
 
 # Compression-ratio bands (vs the model's native bytes). Edges in x.
 RATIO_EDGES = [1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 5.0, 8.0, 1e9]
@@ -103,6 +106,30 @@ def brief(archive: dict) -> str:
                  "yourself; do not reuse an existing family unless you change it fundamentally. "
                  "Tag your method with a short family name.")
     return "\n".join(lines)
+
+
+def preserve(archive: dict, repo_root: Path, dst_dir: Path) -> int:
+    """Copy the SOURCE of every current frontier method into dst_dir (durable + committable) and
+    write FRONTIER.json. Frontier methods often come from gitignored scratch files the loop churns,
+    so this is how a good idea is actually CAUGHT and kept -- the code, not just its score."""
+    fr = frontier(archive)
+    dst_dir.mkdir(parents=True, exist_ok=True)
+    kept = 0
+    for p in fr:
+        raw = p.get("candidate_path", "")
+        if not raw:
+            continue
+        src = Path(raw)
+        if not src.is_absolute():
+            src = repo_root / raw
+        if src.exists():
+            try:
+                shutil.copyfile(src, dst_dir / f"{p['name']}.py")
+                kept += 1
+            except OSError:
+                pass
+    (dst_dir / "FRONTIER.json").write_text(json.dumps(fr, indent=2) + "\n", encoding="utf-8")
+    return kept
 
 
 def audit(archive: dict, recent: int = 2) -> str:
@@ -190,6 +217,10 @@ def main() -> None:
     au = sub.add_parser("audit")
     au.add_argument("--archive", type=Path, required=True)
 
+    pr = sub.add_parser("preserve")
+    pr.add_argument("--archive", type=Path, required=True)
+    pr.add_argument("--dir", type=Path, default=REPO / "examples" / "compress-evolve" / "frontier")
+
     args = parser.parse_args()
     archive = load(args.archive)
 
@@ -212,6 +243,9 @@ def main() -> None:
             print(f"  {p['ratio']:.2f}x  NLL+{p['nll_delta']:+.3f}  [{p['family']}]  {p['name']}")
     elif args.cmd == "audit":
         print(audit(archive))
+    elif args.cmd == "preserve":
+        n = preserve(archive, REPO, args.dir)
+        print(f"preserved {n} frontier methods -> {args.dir}")
 
 
 if __name__ == "__main__":
