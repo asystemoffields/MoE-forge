@@ -1,0 +1,20 @@
+{
+  "name": "carve-grouping",
+  "evaluator_cmd": [
+    "python", "examples/grouping-search/eval_candidate.py",
+    "--candidate", "{candidate}",
+    "--layers", "examples/grouping-search/layer3.npz", "examples/grouping-search/layer9.npz",
+    "--experts", "8", "--shared-ratio", "0.125", "--top-k", "2"
+  ],
+  "evaluator_env": {"PYTHONPATH": "src"},
+  "score_key": "mean_error",
+  "direction": "min",
+  "seed_candidate": "../../../examples/grouping-search/candidates/seed_clustering.py",
+  "prompt_file": "carve_grouping_prompt.md",
+  "candidate_filename": "grouping.py",
+  "generations": 3,
+  "candidates_per_gen": 3,
+  "parents_kept": 2,
+  "model": "claude-sonnet-4-6",
+  "temperature": 1.0
+}

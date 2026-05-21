@@ -11,3 +11,8 @@ main.log
 
 # grouping-search calibration captures (regenerate via capture_layer.py)
 *.npz
+
+# sonnet-evolve run outputs
+tools/sonnet-evolve/runs/
+# evolved grouping candidates (seed is kept)
+examples/grouping-search/candidates/gen*
