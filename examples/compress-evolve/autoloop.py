@@ -98,6 +98,10 @@ def main() -> None:
             "ratio": float(res["ratio"]), "nll": float(res["nll"]),
             "baseline_nll": float(res.get("baseline_nll", 0.0)),
             "nll_delta": float(res.get("nll_delta", 0.0)),
+            "worst_domain_delta": float(res.get("worst_domain_delta", res.get("nll_delta", 0.0))),
+            "tail_delta": float(res.get("tail_delta", 0.0)),
+            "decode_seconds": float(res.get("decode_seconds", 0.0)),
+            "nll_delta_by_domain": res.get("nll_delta_by_domain", {}),
         }
         improved, cell = qd.insert(archive, rec)
         flag = "NEW-BEST" if improved else "kept-prev"

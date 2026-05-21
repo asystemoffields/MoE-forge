@@ -58,19 +58,32 @@ def insert(archive: dict, record: dict) -> tuple[bool, str]:
     return improved, cell
 
 
-def frontier(archive: dict) -> list[dict]:
-    """Pareto frontier minimizing (bytes, nll): points not dominated on both axes."""
+FRONTIER_OBJECTIVES = ("bytes", "nll_delta", "worst_domain_delta", "decode_seconds")
+
+
+def _obj(rec: dict, key: str) -> float:
+    v = rec.get(key)
+    return float(v) if isinstance(v, (int, float)) else float("inf")
+
+
+def frontier(archive: dict, objectives=FRONTIER_OBJECTIVES) -> list[dict]:
+    """Multi-objective Pareto frontier, ALL objectives minimized: bytes, NLL-delta, worst-domain
+    delta (robustness), decode seconds. A point is dominated iff another is <= on every objective
+    and < on at least one. Missing axes count as worst (+inf), so old single-axis records must be
+    re-evaluated to qualify. This is how 'good' widens without a human weighting the axes."""
     pts = list(archive.get("cells", {}).values())
     front = []
     for p in pts:
-        dominated = any(
-            q is not p and q["bytes"] <= p["bytes"] and q["nll"] <= p["nll"]
-            and (q["bytes"] < p["bytes"] or q["nll"] < p["nll"])
-            for q in pts
-        )
+        dominated = False
+        for q in pts:
+            if q is p:
+                continue
+            if all(_obj(q, k) <= _obj(p, k) for k in objectives) and any(_obj(q, k) < _obj(p, k) for k in objectives):
+                dominated = True
+                break
         if not dominated:
             front.append(p)
-    return sorted(front, key=lambda r: r["bytes"])
+    return sorted(front, key=lambda r: r.get("bytes", 0))
 
 
 def occupied_bands(archive: dict) -> set[str]:
@@ -93,17 +106,19 @@ def brief(archive: dict) -> str:
     empty_bands = [b for b in all_bands if b not in occ]
     fams = sorted(families(archive))
 
-    lines = ["RATE-DISTORTION FRONTIER (lower bytes & lower NLL-delta are better):"]
+    lines = ["FRONTIER (minimize ALL axes: ratio/bytes, NLL-delta, worst-domain delta=robustness, decode seconds):"]
     for p in fr:
-        lines.append(f"  - {p['ratio']:.2f}x  NLL+{p['nll_delta']:+.3f}  [{p['family']}]  ({p['name']})")
+        lines.append(f"  - {p['ratio']:.2f}x  NLL{p['nll_delta']:+.3f}  worst-domain{_obj(p, 'worst_domain_delta'):+.3f}  "
+                     f"decode {_obj(p, 'decode_seconds'):.1f}s  [{p['family']}]  ({p['name']})")
     lines.append("")
     lines.append(f"FAMILIES ALREADY TRIED ({len(fams)}): {', '.join(fams)}")
     lines.append(f"EMPTY COMPRESSION-RATIO BANDS (no method here yet): {', '.join(empty_bands) or 'none'}")
     lines.append("")
     lines.append("YOUR JOB: propose a method that EITHER (a) lands in an empty band above, OR "
-                 "(b) Pareto-beats a frontier point (smaller AND/OR lower NLL), using a technique "
-                 "from a family NOT in the tried list, or a novel combination. Choose the approach "
-                 "yourself; do not reuse an existing family unless you change it fundamentally. "
+                 "(b) Pareto-beats a frontier point on ANY axis -- smaller, lower NLL, more robust "
+                 "across prose/code/knowledge (lower worst-domain delta), or faster to decode -- using "
+                 "a technique from a family NOT in the tried list, or a novel combination. Choose the "
+                 "approach yourself; do not reuse an existing family unless you change it fundamentally. "
                  "Tag your method with a short family name.")
     return "\n".join(lines)
 
@@ -164,7 +179,8 @@ def audit(archive: dict, recent: int = 2) -> str:
     lines.append(f"empty ratio-bands: {', '.join(empty) or 'none'}")
     lines.append("frontier (rate-distortion):")
     for p in fr:
-        lines.append(f"  {p['ratio']:.2f}x  NLL{p['nll_delta']:+.3f}  [{p['family']}]  gen={p.get('generation')}  ({p['name']})")
+        lines.append(f"  {p['ratio']:.2f}x  NLL{p['nll_delta']:+.3f}  worst-domain{_obj(p, 'worst_domain_delta'):+.3f}  "
+                     f"decode {_obj(p, 'decode_seconds'):.1f}s  [{p['family']}]  gen={p.get('generation')}  ({p['name']})")
 
     flags = []
     if maxg >= 0 and not recent_front:
