@@ -38,7 +38,6 @@ from .profiling import ProfileOptions, load_calibration_texts, profile_hf_model
 from .recovery_compare import write_recovery_comparison_report
 from .reports import (
     write_eval_comparison_report,
-    write_eval_html_report,
     write_eval_html_report_payload,
 )
 from .recovery import write_recovery_plan
@@ -50,6 +49,33 @@ from .runtime import verify_carved_artifact
 from .smoke import assert_tiny_hf_smoke_run
 from .summary import summarize_run
 from .wrapper import export_wrapper_package
+
+
+# Tiered command map so `moe-forge --help` separates entry points from plumbing.
+_COMMAND_GROUPS_HELP = """\
+command groups (run `moe-forge <command> -h` for details):
+
+  start here (high-level workflow):
+    inspect            inspect a dense checkpoint
+    convert            dense -> MoE wrapper in one command
+    recovery-experiment  before/after eval + recovery + comparison
+    benchmark-plan / benchmark-compare   dense-vs-MoE benchmarks
+    publish-check      release-readiness gate
+
+  run operations (agent-friendly):
+    job-launch         launch a background/Modal job
+    job-collect        pull a finished job's artifact off the Modal volume
+    runs               ledger of every run with state + headline metric
+    status             one run's local+Modal state (running/done/failed)
+    summarize          decision-ready verdict for a recovery report
+    preflight          readiness checks + suggested next commands
+
+  advanced primitives (usually orchestrated by convert / recovery-experiment):
+    plan, profile, carve-manifest, carve-apply, carve-verify, router-plan,
+    wrapper-export, eval-hf, eval-compare, eval-batch, recovery-plan,
+    recovery-run, recovery-export, recovery-validate, recovery-compare,
+    model-card, corpus-build, smoke-assert, adapters
+"""
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -99,8 +125,6 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_wrapper_export(args)
         if args.command == "eval-hf":
             return _cmd_eval_hf(args)
-        if args.command == "eval-report-html":
-            return _cmd_eval_report_html(args)
         if args.command == "eval-compare":
             return _cmd_eval_compare(args)
         if args.command == "eval-batch":
@@ -133,6 +157,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="moe-forge",
         description="Plan and build Mixture-of-Experts variants from dense model checkpoints.",
+        epilog=_COMMAND_GROUPS_HELP,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     subparsers = parser.add_subparsers(dest="command")
 
@@ -486,13 +512,6 @@ def build_parser() -> argparse.ArgumentParser:
     eval_parser.add_argument("--html-output", type=Path, help="Optional self-contained HTML report output path.")
     eval_parser.add_argument("--print", action="store_true", help="Also print the evaluation report JSON.")
 
-    report_parser = subparsers.add_parser(
-        "eval-report-html",
-        help="Render an eval-hf JSON report as self-contained HTML.",
-    )
-    report_parser.add_argument("--input", type=Path, required=True, help="Evaluation JSON report from eval-hf.")
-    report_parser.add_argument("--output", type=Path, required=True, help="HTML report output path.")
-
     compare_parser = subparsers.add_parser(
         "eval-compare",
         help="Compare multiple eval-hf JSON reports side by side.",
@@ -736,7 +755,11 @@ def _cmd_convert(args: argparse.Namespace) -> int:
     if args.print:
         print(json.dumps(report, indent=2, sort_keys=True))
     else:
-        print(f"{report['status']}; wrote {report['artifacts']['convert_report']}")
+        _emit(
+            f"{report['status']}; wrote {report['artifacts']['convert_report']}",
+            f"moe-forge recovery-experiment --config <config>  # recover quality on {args.output_dir}",
+            f"moe-forge benchmark-plan --source-model {args.model} --moe-model {args.output_dir}",
+        )
     return 0 if report.get("passed") else 1
 
 
@@ -854,7 +877,11 @@ def _cmd_benchmark_plan(args: argparse.Namespace) -> int:
     if args.print:
         print(json.dumps(report, indent=2, sort_keys=True))
     else:
-        print(f"wrote {args.output}")
+        _emit(
+            f"wrote {args.output}",
+            "launch on Modal (examples/modal-smollm-benchmark/modal_lighteval.py), then:",
+            "moe-forge benchmark-compare --dense-report <dense>/results.json --moe-report <moe>/results.json",
+        )
     return 0
 
 
@@ -897,7 +924,10 @@ def _cmd_plan(args: argparse.Namespace) -> int:
     if args.print:
         print(json.dumps(payload, indent=2, sort_keys=True))
     else:
-        print(f"wrote {args.output}")
+        _emit(
+            f"wrote {args.output}",
+            f"moe-forge carve-manifest {args.model} --recipe {args.output}",
+        )
     return 0
 
 
@@ -940,7 +970,10 @@ def _cmd_profile(args: argparse.Namespace) -> int:
     if args.print:
         print(json.dumps(payload, indent=2, sort_keys=True))
     else:
-        print(f"wrote {args.output}")
+        _emit(
+            f"wrote {args.output}",
+            f"moe-forge carve-manifest {args.model} --recipe <recipe> --profile {args.output}",
+        )
     return 0
 
 
@@ -955,7 +988,10 @@ def _cmd_carve_manifest(args: argparse.Namespace) -> int:
     if args.print:
         print(json.dumps(payload, indent=2, sort_keys=True))
     else:
-        print(f"wrote {args.output}")
+        _emit(
+            f"wrote {args.output}",
+            f"moe-forge carve-apply --manifest {args.output} --output-dir <dir>",
+        )
     return 0
 
 
@@ -975,7 +1011,11 @@ def _cmd_carve_apply(args: argparse.Namespace) -> int:
     if args.print:
         print(json.dumps(payload, indent=2, sort_keys=True))
     else:
-        print(f"wrote {args.output_dir}")
+        _emit(
+            f"wrote {args.output_dir}",
+            f"moe-forge carve-verify --manifest {args.manifest} --artifact {args.output_dir}/carved-experts.safetensors",
+            f"moe-forge wrapper-export --manifest {args.manifest} --artifact {args.output_dir}/carved-experts.safetensors --output-dir <wrapper>",
+        )
     return 0
 
 
@@ -1023,7 +1063,11 @@ def _cmd_wrapper_export(args: argparse.Namespace) -> int:
     if args.print:
         print(json.dumps(payload, indent=2, sort_keys=True))
     else:
-        print(f"wrote {args.output_dir}")
+        _emit(
+            f"wrote {args.output_dir}",
+            f"moe-forge eval-hf {args.model if hasattr(args, 'model') else '<model>'} --wrapper {args.output_dir}",
+            f"moe-forge recovery-experiment --config <config>  # to recover quality",
+        )
     return 0
 
 
@@ -1051,12 +1095,6 @@ def _cmd_eval_hf(args: argparse.Namespace) -> int:
         status = "passed" if report.passed else "failed"
         print(f"{status}; wrote {args.output}")
     return 0 if report.passed or not args.strict else 1
-
-
-def _cmd_eval_report_html(args: argparse.Namespace) -> int:
-    write_eval_html_report(report_path=args.input, output_path=args.output)
-    print(f"wrote {args.output}")
-    return 0
 
 
 def _cmd_eval_compare(args: argparse.Namespace) -> int:
@@ -1121,7 +1159,11 @@ def _cmd_job_launch(args: argparse.Namespace) -> int:
     if args.print:
         print(json.dumps(manifest, indent=2, sort_keys=True))
     else:
-        print(f"{manifest['status']}; wrote {Path(str(manifest['output_dir'])) / 'job.json'}")
+        job_path = Path(str(manifest['output_dir'])) / 'job.json'
+        _emit(
+            f"{manifest['status']}; wrote {job_path}",
+            f"moe-forge status --job {job_path}",
+        )
     return 0
 
 
@@ -1154,7 +1196,10 @@ def _cmd_recovery_export(args: argparse.Namespace) -> int:
     if args.print:
         print(json.dumps(report, indent=2, sort_keys=True))
     else:
-        print(f"wrote {report['output_dir']}")
+        _emit(
+            f"wrote {report['output_dir']}",
+            f"moe-forge recovery-validate --source-wrapper {args.wrapper} --recovered-wrapper {report['output_dir']}",
+        )
     return 0
 
 
@@ -1182,7 +1227,10 @@ def _cmd_recovery_experiment(args: argparse.Namespace) -> int:
     if args.print:
         print(json.dumps(report, indent=2, sort_keys=True))
     else:
-        print(f"wrote {report['artifacts']['json_report']}")
+        _emit(
+            f"wrote {report['artifacts']['json_report']}",
+            f"moe-forge summarize {report['artifacts']['json_report']}",
+        )
     return 0
 
 
@@ -1233,6 +1281,14 @@ def _load_optional_texts(*, text: str | None, text_file: Path | None) -> list[st
         content = text_file.read_text(encoding="utf-8")
         samples.extend(chunk.strip() for chunk in content.split("\n\n") if chunk.strip())
     return samples or None
+
+
+def _emit(status_line: str, *next_commands: str) -> None:
+    """Standard human output: a status line, then any suggested next commands."""
+    print(status_line)
+    for command in next_commands:
+        if command:
+            print(f"  next: {command}")
 
 
 def _write_json(path: Path, payload: dict[str, Any]) -> None:

@@ -25,26 +25,16 @@ def test_render_eval_html_report_escapes_and_summarizes() -> None:
     assert "quality/speed tradeoff" in html
 
 
-def test_write_eval_html_report_and_cli(tmp_path: Path) -> None:
+def test_write_eval_html_report(tmp_path: Path) -> None:
     report_path = tmp_path / "eval.json"
     html_path = tmp_path / "report.html"
-    cli_html_path = tmp_path / "cli-report.html"
     report_path.write_text(json.dumps(_report()), encoding="utf-8")
 
     write_eval_html_report(report_path=report_path, output_path=html_path)
-    status = main(
-        [
-            "eval-report-html",
-            "--input",
-            str(report_path),
-            "--output",
-            str(cli_html_path),
-        ]
-    )
 
-    assert status == 0
-    assert html_path.read_text(encoding="utf-8").startswith("<!doctype html>")
-    assert "Active Experts" in cli_html_path.read_text(encoding="utf-8")
+    rendered = html_path.read_text(encoding="utf-8")
+    assert rendered.startswith("<!doctype html>")
+    assert "Active Experts" in rendered
 
 
 def test_build_eval_comparison_ranks_reports_and_renders_html(tmp_path: Path) -> None:
