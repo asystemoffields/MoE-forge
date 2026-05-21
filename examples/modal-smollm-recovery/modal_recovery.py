@@ -11,7 +11,7 @@ import modal
 APP_NAME = "moeforge-smollm-recovery"
 VOLUME_NAME = "moeforge-benchmarks"
 HF_CACHE_VOLUME_NAME = "moeforge-hf-cache"
-MOEFORGE_REVISION = "974eeb06a32290a39d87e4b97c3493b9c9d2ee1a"
+MOEFORGE_REVISION = "b6bdb2330eb002577e4bd63f6fa683198d9d6fac"
 REMOTE_ROOT = Path("/vol")
 REMOTE_ROOT_DISPLAY = "/vol"
 HF_CACHE_ROOT = "/cache"
