@@ -22,9 +22,11 @@ from .inspectors import inspect_model
 from .jobs import (
     JobLaunchOptions,
     ModalCollectOptions,
+    RunsListOptions,
     RunStatusOptions,
     collect_modal_artifact,
     launch_background_job,
+    list_runs,
     run_status,
 )
 from .materialize import materialize_carve_manifest
@@ -77,6 +79,8 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_job_launch(args)
         if args.command == "job-collect":
             return _cmd_job_collect(args)
+        if args.command == "runs":
+            return _cmd_runs(args)
         if args.command == "status":
             return _cmd_status(args)
         if args.command == "summarize":
@@ -326,6 +330,15 @@ def build_parser() -> argparse.ArgumentParser:
     collect_parser.add_argument("--remote-path", help="Override the remote artifact path from the spawn manifest.")
     collect_parser.add_argument("--dry-run", action="store_true", help="Write the collect plan without calling Modal.")
     collect_parser.add_argument("--print", action="store_true", help="Also print the collect report JSON.")
+
+    runs_parser = subparsers.add_parser(
+        "runs",
+        help="List all background runs with state and headline metric (cold-start ledger).",
+    )
+    runs_parser.add_argument("--jobs-dir", type=Path, default=Path("outputs/modal-jobs"), help="Directory holding named job dirs.")
+    runs_parser.add_argument("--volume", default="moeforge-benchmarks", help="Modal volume name.")
+    runs_parser.add_argument("--remote", action="store_true", help="Query Modal for live state of each run (slower).")
+    runs_parser.add_argument("--json", action="store_true", help="Print the full machine-readable runs index JSON.")
 
     status_parser = subparsers.add_parser(
         "status",
@@ -742,6 +755,29 @@ def _cmd_job_collect(args: argparse.Namespace) -> int:
     else:
         print(f"{report['status']}; wrote {report['report_path']}")
     return 0 if report.get("status") in {"planned", "collected"} else 1
+
+
+def _cmd_runs(args: argparse.Namespace) -> int:
+    index = list_runs(
+        RunsListOptions(
+            jobs_dir=args.jobs_dir,
+            volume=args.volume,
+            query_remote=args.remote,
+        )
+    )
+    if args.json:
+        print(json.dumps(index, indent=2, sort_keys=True))
+        return 0
+    runs = index.get("runs", [])
+    if not runs:
+        print(f"no runs found under {index.get('jobs_dir')}")
+        return 0
+    for row in runs:
+        metric = ""
+        if row.get("learned_router_kl") is not None:
+            metric = f"  gap={row.get('routing_gap')} kl={row['learned_router_kl']:.4f}"
+        print(f"{str(row.get('state')):<10} {row.get('run_name')}{metric}")
+    return 0
 
 
 def _cmd_status(args: argparse.Namespace) -> int:

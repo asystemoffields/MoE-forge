@@ -41,6 +41,13 @@ class RunStatusOptions:
     query_remote: bool = True
 
 
+@dataclass(slots=True)
+class RunsListOptions:
+    jobs_dir: Path = Path("outputs/modal-jobs")
+    volume: str = "moeforge-benchmarks"
+    query_remote: bool = False
+
+
 # Modal mounts the benchmarks volume at this path inside the container, but the `modal volume`
 # CLI addresses files relative to the volume root, so the mount prefix must be stripped.
 MODAL_VOLUME_MOUNT = "/vol"
@@ -231,6 +238,55 @@ def run_status(
         ),
     }
     return report
+
+
+def list_runs(
+    options: RunsListOptions,
+    *,
+    runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
+) -> dict[str, Any]:
+    """Index every background job under jobs_dir into one ledger row per run (state + headline metric)."""
+    from .summary import RunSummaryError, summarize_run
+
+    rows: list[dict[str, Any]] = []
+    for job_json in sorted(options.jobs_dir.glob("*/job.json")):
+        try:
+            status = run_status(
+                RunStatusOptions(
+                    job_manifest=job_json,
+                    volume=options.volume,
+                    query_remote=options.query_remote,
+                ),
+                runner=runner,
+            )
+        except JobLaunchError:
+            continue
+        row: dict[str, Any] = {
+            "run_name": status.get("run_name"),
+            "state": status.get("state"),
+            "job_manifest": status.get("job_manifest"),
+        }
+        local_artifact = Path(str(_dict(status.get("local_artifact")).get("path") or ""))
+        if local_artifact.exists():
+            try:
+                summary = summarize_run(report_path=local_artifact)
+            except RunSummaryError:
+                summary = None
+            if summary is not None:
+                row["routing_gap"] = _dict(summary.get("verdicts")).get("routing_gap")
+                row["learned_router_kl"] = _dict(_dict(summary.get("metrics")).get("learned_router")).get("kl_after")
+                row["headline"] = summary.get("headline")
+        rows.append(row)
+    return {
+        "format": "moeforge_runs_index",
+        "jobs_dir": str(options.jobs_dir),
+        "run_count": len(rows),
+        "runs": rows,
+    }
+
+
+def _dict(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
 
 
 def _resolve_status_manifest(options: RunStatusOptions) -> Path:

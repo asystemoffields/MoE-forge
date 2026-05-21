@@ -11,9 +11,11 @@ from moeforge.jobs import (
     JobLaunchError,
     JobLaunchOptions,
     ModalCollectOptions,
+    RunsListOptions,
     RunStatusOptions,
     collect_modal_artifact,
     launch_background_job,
+    list_runs,
     run_status,
 )
 
@@ -115,6 +117,63 @@ def test_run_status_failed_when_app_stopped_without_artifact(tmp_path: Path) -> 
     status = main(["status", "--job", str(job_manifest), "--no-remote"])
     # CLI returns 0 for an offline (pending/unknown) check.
     assert status == 0
+
+
+def test_list_runs_indexes_jobs_with_headline_metric(tmp_path: Path) -> None:
+    jobs_dir = tmp_path / "modal-jobs"
+    # Run A: has a collected recovery-experiment manifest -> ledger should peek its metric.
+    job_a = jobs_dir / "run-a"
+    job_a.mkdir(parents=True)
+    (job_a / "job.json").write_text(
+        json.dumps(
+            {
+                "format": "moeforge_modal_recovery_spawn",
+                "name": "run-a",
+                "output_dir": str(job_a),
+                "expected_report": "/vol/recovery-runs/run-a/modal-recovery-manifest.json",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (job_a / "modal-recovery-manifest.json").write_text(
+        json.dumps(
+            {
+                "summary": {"initial_loss": 4.0, "final_loss": 1.0, "steps_completed": 1000},
+                "recovery_run": {"losses": [{"step": 1000, "total_loss": 1.0}]},
+                "quality_trends": {
+                    "before_after_quality": {
+                        "modes": [
+                            {
+                                "expert_mode": "learned-router",
+                                "teacher_kl_loss_before": 1.0,
+                                "teacher_kl_loss_after": 0.33,
+                                "teacher_kl_loss_delta": -0.67,
+                                "carved_nll_loss_delta": -0.2,
+                            }
+                        ]
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    # Run B: launched but nothing collected yet.
+    job_b = jobs_dir / "run-b"
+    job_b.mkdir(parents=True)
+    (job_b / "job.json").write_text(
+        json.dumps({"format": "moeforge_background_job", "name": "run-b", "output_dir": str(job_b)}),
+        encoding="utf-8",
+    )
+
+    index = list_runs(RunsListOptions(jobs_dir=jobs_dir, query_remote=False))
+
+    assert index["run_count"] == 2
+    by_name = {row["run_name"]: row for row in index["runs"]}
+    assert by_name["run-a"]["state"] == "collected"
+    assert by_name["run-a"]["routing_gap"] == "moderate"
+    assert abs(by_name["run-a"]["learned_router_kl"] - 0.33) < 1e-9
+    assert by_name["run-b"]["state"] == "unknown"
+    assert "headline" not in by_name["run-b"]
 
 
 def test_launch_background_job_dry_run_records_command(tmp_path: Path) -> None:

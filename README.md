@@ -50,6 +50,7 @@ moe-forge benchmark-compare --dense-report benchmarks/smollm-base/dense/results.
 moe-forge publish-check --wrapper recovered-wrapper --eval-report eval-all.json --eval-report eval-learned-router.json --benchmark-report benchmark-compare.json --recovery-report recovery-experiment-report.json --validation-report recovered-wrapper-validation.json --require-recovery --require-benchmark
 moe-forge job-launch --name smollm-router-sweep --output-dir outputs/jobs -- modal run --detach examples/modal-smollm-recovery/modal_recovery.py --run-name smollm-router-sweep --token-router-top-k 3 --spawn
 moe-forge job-collect --job outputs/jobs/smollm-router-sweep/job.json --output-dir outputs/jobs/smollm-router-sweep
+moe-forge runs --jobs-dir outputs/modal-jobs
 moe-forge status --job outputs/jobs/smollm-router-sweep/job.json
 moe-forge summarize outputs/jobs/smollm-router-sweep/modal-recovery-manifest.json
 moe-forge smoke-assert --run-dir . --output smoke-assertions.json
@@ -128,6 +129,7 @@ Current evaluation support includes:
 - benchmark-compare JSON reports that rank dense retention by average score, core-task drop, and core-task retention
 - publish-readiness checks that can require source-aligned benchmark comparison evidence before release
 - agent-friendly preflight JSON reports with readiness checks, blockers, warnings, and suggested next commands
+- a `runs` ledger that indexes every background job into one row per run (state plus headline routing-gap/KL metric) for fast cold-start orientation
 - unified `status` reports that reconcile a background job's local artifacts, Modal volume, and app state into one running/done/failed verdict with suggested next commands
 - decision-ready `summarize` reports that turn a recovery-experiment report into a headline verdict, findings, routing-gap/undertraining judgments, and suggested next commands
 - smoke assertions that verify tiny HF recipe artifacts, quality metrics, recovered-wrapper validation, and report links
