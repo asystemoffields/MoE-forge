@@ -1,0 +1,9 @@
+{
+  "_comment": "Island stances for the compress-evolve reconception loop. Each is a different CONCEPTION of what compression IS, to push proposers into structurally different regions of the rate-distortion x method-family frontier (quality-diversity via islands).",
+  "stances": {
+    "info_theory": "Treat this strictly as SOURCE CODING. The artifact's real byte count is the rate; minimize held-out NLL at that rate. Allocate bits by per-weight sensitivity, quantize, and ENTROPY-CODE the symbols (arithmetic/range/ANS) so you pay only the true entropy. Push toward the rate-distortion bound.",
+    "behavioral": "The weights are a means, not the end. Preserve the FUNCTION the model computes on calib -- its layer activations/outputs -- and change the weights however is cheapest to reproduce that behavior (e.g. low-rank factor each layer, fit to match its calib outputs, not its weights). Compression = behavior matching under a byte budget.",
+    "representation": "The model's information lives on a low-dimensional manifold. Find the basis (rotation, PCA of weights, PCA of activations, SVD) where it concentrates, store few coefficients there, reconstruct. Compression = discover and store only the intrinsic coordinates.",
+    "structure": "Do NOT compress tensors independently. Exploit redundancy ACROSS the whole model -- shared codebooks across layers, joint factorization, delta-code similar adjacent layers, weight-tying you discover from calib. Compression = global redundancy, not per-tensor coding."
+  }
+}

@@ -18,6 +18,8 @@ tools/sonnet-evolve/runs/
 examples/grouping-search/candidates/gen*
 # evolved router candidates (seed_router + curated evolved_* are kept)
 examples/router-search/candidates/gen*
+# compress-evolve candidates (seeds + curated evolved_* are kept; gen_* are scratch)
+examples/compress-evolve/candidates/gen*
 
 # grouping-search agent scratch
 examples/grouping-search/run_*.py
