@@ -8,3 +8,6 @@ build/
 outputs/
 main.log
 
+
+# grouping-search calibration captures (regenerate via capture_layer.py)
+*.npz
