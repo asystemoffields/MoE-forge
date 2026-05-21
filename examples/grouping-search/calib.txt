@@ -1,0 +1,36 @@
+The mitochondria is the powerhouse of the cell, converting nutrients into usable energy.
+
+In 1969, Apollo 11 landed the first humans on the Moon after a four-day journey.
+
+def quicksort(xs):
+    if len(xs) <= 1:
+        return xs
+    pivot = xs[0]
+    rest = xs[1:]
+    return quicksort([x for x in rest if x < pivot]) + [pivot] + quicksort([x for x in rest if x >= pivot])
+
+The capital of France is Paris, a city known for its art, food, and architecture.
+
+Photosynthesis converts carbon dioxide and water into glucose using energy from sunlight.
+
+She argued that the proposed economic policy would raise inflation in the short term but stabilize growth later.
+
+Water boils at 100 degrees Celsius at standard atmospheric pressure, and freezes at 0 degrees.
+
+The Pythagorean theorem states that for a right triangle, a squared plus b squared equals c squared.
+
+Once upon a time, in a village nestled between two mountains, lived a curious and fearless child.
+
+Quantum entanglement links the states of two particles so that measuring one instantly informs the other, regardless of distance.
+
+The recipe calls for two cups of flour, a teaspoon of salt, three eggs, and a cup of milk.
+
+Markets fell sharply on news of rising interest rates and weaker-than-expected corporate earnings.
+
+The immune system defends the body against pathogens through a layered set of innate and adaptive responses.
+
+Supervised learning fits a model to labeled examples, while unsupervised learning finds structure in unlabeled data.
+
+The French Revolution began in 1789 and reshaped the political landscape of Europe for a century.
+
+A binary search halves the search space each step, finding an element in logarithmic time.
