@@ -17,6 +17,7 @@ Constraints:
 - numpy only; deterministic given `rng`; each call must run in well under a minute (I ≈ 1536 channels, T ≈ 200 tokens).
 - The returned assignment must have shape [I] and every value must be SHARED or in 0..n_experts-1.
 - Scoring regime: n_experts=8, shared_ratio=0.125, top_k=2.
+- BUDGET (enforced — violations score worst): you must use ALL n_experts, and expert sizes must be roughly balanced (no expert larger than 2x the average expert size). Collapsing routed channels into one big expert so top-k covers everything is rejected — the grouping must be genuinely sparse.
 
 Why groupings score well: the metric rewards placing channels that fire together (for the same tokens) into the same expert, so few experts reconstruct most of each token's output. High-importance channels are good candidates for the always-active SHARED group. Co-activation structure lives in `ctx["activations"]` (correlations / clustering of channel activation vectors). Balanced expert sizes can help because whole experts are dropped per token.
 

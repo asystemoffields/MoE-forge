@@ -69,6 +69,18 @@ def main() -> None:
         if not bool(valid.all()):
             print(json.dumps({"error": f"assignment has out-of-range values on {path.stem}"}))
             return
+        # Budget guard: oracle-top-k is trivially 0 if a grouping isn't actually sparse
+        # (e.g. all routed channels in one expert, so top-k covers everything). Require all
+        # experts used and roughly balanced so top-k drops a real fraction of channels.
+        routed = assignment[assignment != SHARED]
+        counts = np.bincount(routed, minlength=args.experts) if routed.size else np.zeros(args.experts, dtype=int)
+        if int((counts == 0).sum()) > 0:
+            print(json.dumps({"error": f"not all {args.experts} experts used on {path.stem}: sizes {counts.tolist()}"}))
+            return
+        ideal = routed.size / args.experts
+        if ideal > 0 and int(counts.max()) > 2.0 * ideal:
+            print(json.dumps({"error": f"unbalanced experts on {path.stem}: max {int(counts.max())} > 2x ideal {ideal:.1f}"}))
+            return
         err = oracle_topk_error(activations=activations, down=down, assignment=assignment, top_k=args.top_k)
         per_layer.append({"layer": path.stem, "error": err})
 
