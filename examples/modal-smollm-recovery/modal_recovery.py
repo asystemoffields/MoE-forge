@@ -220,10 +220,17 @@ def main(
     include_answers: bool = False,
     token_router_top_k: int | None = None,
     router_oracle_method: str = "magnitude",
+    resume_from_run: str | None = None,
     spawn: bool = False,
 ) -> None:
     # GPU is set at registration time via DEFAULT_GPU (env MOEFORGE_GPU); A10G by default.
     target = run_smollm_recovery
+    # Resume: start from a prior run's recovered-wrapper instead of the source carved wrapper.
+    # That reloads the trained expert + router weights, so training continues rather than
+    # restarting from scratch. (Optimizer momentum still resets; the flat LR makes that minor.)
+    # Pass --train-experts again for a joint resume, or it will only continue training the router.
+    if resume_from_run:
+        wrapper = f"{REMOTE_ROOT_DISPLAY}/recovery-runs/{resume_from_run}/recovered-wrapper"
     kwargs = {
         "run_name": run_name,
         "wrapper": wrapper,
@@ -248,7 +255,11 @@ def main(
             "function_call_id": call.object_id,
             "dashboard_url": call.get_dashboard_url(),
             "expected_report": f"{REMOTE_ROOT_DISPLAY}/recovery-runs/{run_name}/modal-recovery-manifest.json",
+            "resume_from_run": resume_from_run,
+            "wrapper": wrapper,
         }
     else:
         manifest = target.remote(**kwargs)
+        if isinstance(manifest, dict):
+            manifest["resume_from_run"] = resume_from_run
     print(json.dumps(manifest, indent=2, sort_keys=True))

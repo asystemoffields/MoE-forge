@@ -48,6 +48,9 @@ moe-forge benchmark-plan --source-model HuggingFaceTB/SmolLM-135M-Instruct --moe
 moe-forge benchmark-compare --dense-report benchmarks/smollm-base/dense/results.json --moe-report benchmarks/smollm-base/moe/results.json --suite smollm-base --output benchmark-compare.json
 moe-forge publish-check --wrapper recovered-wrapper --eval-report eval-all.json --eval-report eval-learned-router.json --benchmark-report benchmark-compare.json --recovery-report recovery-experiment-report.json --validation-report recovered-wrapper-validation.json --require-recovery --require-benchmark
 moe-forge job-launch --name smollm-router-sweep --output-dir outputs/jobs -- modal run --detach examples/modal-smollm-recovery/modal_recovery.py --run-name smollm-router-sweep --token-router-top-k 3 --spawn
+# Continue a finished run instead of restarting: --resume-from-run loads the prior
+# recovered-wrapper (trained experts + router), so training picks up where it left off.
+moe-forge job-launch --name smollm-router-sweep-more --output-dir outputs/jobs -- modal run --detach examples/modal-smollm-recovery/modal_recovery.py --run-name smollm-router-sweep-more --resume-from-run smollm-router-sweep --steps 4000 --token-router-top-k 3 --train-experts --spawn
 moe-forge job-collect --job outputs/jobs/smollm-router-sweep/job.json --output-dir outputs/jobs/smollm-router-sweep
 moe-forge runs --jobs-dir outputs/modal-jobs
 moe-forge status --job outputs/jobs/smollm-router-sweep/job.json
