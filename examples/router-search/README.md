@@ -35,8 +35,15 @@ PYTHONPATH=src python examples/router-search/eval_router.py \
     --candidate examples/router-search/candidates/seed_router.py \
     --layers examples/router-search/fixture.npz --experts 4 --top-k 2
 
-# 3. Evolve (needs ANTHROPIC_API_KEY):
-python tools/sonnet-evolve/alphaevolve.py --task tools/sonnet-evolve/tasks/router_evolve.json
+# 3a. Evolve WITH an API key: alphaevolve.py calls the model to mutate candidates.
+ANTHROPIC_API_KEY=... python tools/sonnet-evolve/alphaevolve.py --task tools/sonnet-evolve/tasks/router_evolve.json
+
+# 3b. Evolve WITHOUT a key (the workflow used here): Claude Code spawns Sonnet subagents as
+#     the generator -- each reads this prompt + the current best candidates and returns a new
+#     router.py; you write them into candidates/ and score each with eval_router.py (pure
+#     numpy, no key). Generation and evaluation stay separate: the model proposes, the
+#     evaluator disposes. The candidates/ lineage (gen1_* hand-seeded, gen2_* sonnet-spawned)
+#     is exactly such a run.
 
 # 4. Validate the winner on the held-out layer:
 PYTHONPATH=src python examples/router-search/eval_router.py \
@@ -50,6 +57,11 @@ the reconstruction (a selected expert contributes its full output). Softmax-weig
 train==deploy interactions are validated downstream via teacher-KL on the real wrapper. A win
 here means a better *selection rule*; promote it by deriving the router init/parameterization
 from the evolved rule, then confirm with a recovery run.
+
+The synthetic `fixture.npz` (random Gaussian weights, ~40 tokens) only validates the *mechanism*
+and that the evaluator discriminates (random ~0.52 vs oracle ~0.26); it cannot rank routers,
+because the calibration-fit and structure-aware rules need real captured layers to show their
+edge. Run the search on captured SmolLM layers for any real conclusion.
 
 ## Tests
 `PYTHONPATH=src python -m pytest examples/router-search/test_eval_router.py` — metric parity
