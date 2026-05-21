@@ -42,5 +42,22 @@ def decompress(artifact: bytes) -> model                      # returns a runnab
 - `decompress` must return a runnable `nn.Module` (rebuild via `AutoConfig.for_model` + `from_config`,
   exactly like the seeds). Be deterministic; return finite weights.
 
+## Performance & robustness (REQUIRED — these sank EVERY gen-1 attempt)
+- **Vectorize everything in numpy. NO per-element Python loops** over weights or symbols — a
+  Python loop over millions of values times out. Bit-pack with `np.packbits`/`np.unpackbits` or
+  raw byte views; for entropy coding, quantize then `zlib` the packed bytes (vectorized) rather
+  than hand-rolling a per-symbol range coder.
+- **Bound memory.** Never materialize a full `[n_values, n_codes]` broadcast (it OOMs at LLM
+  scale). Chunk nearest-code assignment, or quantize against sorted centers with
+  `np.searchsorted`/`np.digitize`.
+- **Guarantee a FINITE reconstruction.** Guard every SVD / lstsq / inverse (ridge + try/except,
+  fall back to the raw weight); never store values in fp16 that overflow to inf; check
+  `np.isfinite` on each reconstructed tensor before loading it. One NaN/inf makes NLL NaN = worst score.
+- **Self-validate and back off (the big lever).** Inside `compress`, hold back a slice of
+  `calib_tokens`, reconstruct, and measure your own distortion (calib NLL or per-layer recon
+  error); then ADAPT — add rank/bits where distortion is high, starve where it's low. A blind
+  aggressive setting is why gen-1 produced NaN/garbage; a method that watches its own calib NLL
+  and dials back will not.
+
 ## Output
 Return ONLY a single ```python code block defining `compress` and `decompress`. No prose.
