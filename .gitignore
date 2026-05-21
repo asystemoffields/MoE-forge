@@ -16,3 +16,9 @@ main.log
 tools/sonnet-evolve/runs/
 # evolved grouping candidates (seed is kept)
 examples/grouping-search/candidates/gen*
+
+# grouping-search agent scratch
+examples/grouping-search/run_*.py
+examples/grouping-search/test_*.py
+examples/grouping-search/check_*.py
+examples/grouping-search/debug_*.py
