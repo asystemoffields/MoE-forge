@@ -1,0 +1,16 @@
+
+=== layer3 ===
+  standard: err=0.417896, proxy=1189.32, completed=11, t=22.3s
+  beam(thresh=0.8): err=0.417896, proxy=1189.32, tried=12, abandoned=0, t=22.7s
+  beam(thresh=0.85): err=0.417896, proxy=1189.32, tried=22, abandoned=10, t=22.4s
+  beam(thresh=0.9): err=0.420359, proxy=1187.70, tried=29, abandoned=22, t=22.3s
+  beam(thresh=0.95): err=0.421483, proxy=1179.56, tried=34, abandoned=30, t=22.6s
+
+=== layer9 ===
+  standard: err=0.426075, proxy=3246.52, completed=19, t=22.5s
+  beam(thresh=0.8): err=0.426075, proxy=3246.52, tried=19, abandoned=0, t=22.3s
+  beam(thresh=0.85): err=0.426075, proxy=3246.52, tried=22, abandoned=10, t=22.2s
+  beam(thresh=0.9): err=0.426075, proxy=3246.52, tried=32, abandoned=27, t=22.6s
+  beam(thresh=0.95): err=0.429128, proxy=3216.16, tried=36, abandoned=34, t=22.5s
+
+Done.

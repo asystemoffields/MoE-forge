@@ -41,6 +41,7 @@ def main() -> None:
     parser.add_argument("--experts", type=int, default=8)
     parser.add_argument("--shared-ratio", type=float, default=0.125)
     parser.add_argument("--top-k", type=int, default=2)
+    parser.add_argument("--max-balance", type=float, default=2.0, help="Reject if any expert > this * ideal size.")
     parser.add_argument("--seed", type=int, default=0)
     args = parser.parse_args()
 
@@ -78,8 +79,8 @@ def main() -> None:
             print(json.dumps({"error": f"not all {args.experts} experts used on {path.stem}: sizes {counts.tolist()}"}))
             return
         ideal = routed.size / args.experts
-        if ideal > 0 and int(counts.max()) > 2.0 * ideal:
-            print(json.dumps({"error": f"unbalanced experts on {path.stem}: max {int(counts.max())} > 2x ideal {ideal:.1f}"}))
+        if ideal > 0 and int(counts.max()) > args.max_balance * ideal:
+            print(json.dumps({"error": f"unbalanced experts on {path.stem}: max {int(counts.max())} > {args.max_balance}x ideal {ideal:.1f}"}))
             return
         err = oracle_topk_error(activations=activations, down=down, assignment=assignment, top_k=args.top_k)
         per_layer.append({"layer": path.stem, "error": err})

@@ -1,0 +1,12 @@
+
+=== layer3 ===
+  n_cand=1: err=0.410201, proxy=1208.38, restarts=4, t=24.5s
+  n_cand=2: err=0.411298, proxy=1208.77, restarts=4, t=25.6s
+  n_cand=4: err=0.410091, proxy=1213.53, restarts=3, t=23.9s
+
+=== layer9 ===
+  n_cand=1: err=0.421554, proxy=3262.54, restarts=4, t=23.7s
+  n_cand=2: err=0.421439, proxy=3272.94, restarts=3, t=22.1s
+  n_cand=4: err=0.420402, proxy=3268.31, restarts=3, t=27.5s
+
+Done.

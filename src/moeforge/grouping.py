@@ -113,3 +113,64 @@ def random_grouping(
     shared = rng.choice(channel_count, size=n_shared, replace=False)
     assignment[shared] = SHARED
     return assignment
+
+
+def balanced_assign(features: np.ndarray, k: int, *, rng: np.random.Generator, iters: int = 12) -> np.ndarray:
+    """Equal-size clustering: like k-means but each cluster is capped at ceil(n/k) members.
+    Greedy capacity assignment ordered by per-point regret (decisiveness)."""
+    n = features.shape[0]
+    cap = -(-n // max(1, k))  # ceil
+    centers = features[rng.choice(n, min(k, n), replace=False)].astype(np.float64).copy()
+    labels = np.zeros(n, dtype=int)
+    for _ in range(iters):
+        dist = ((features[:, None, :] - centers[None, :, :]) ** 2).sum(axis=2)  # [n, k]
+        order = np.argsort(dist, axis=1)
+        best = dist[np.arange(n), order[:, 0]]
+        second = dist[np.arange(n), order[:, 1]] if k > 1 else best
+        proc = np.argsort(-(second - best))  # most-decisive points first
+        labels = np.full(n, -1, dtype=int)
+        counts = np.zeros(k, dtype=int)
+        for point in proc:
+            for cluster in order[point]:
+                if counts[cluster] < cap:
+                    labels[point] = cluster
+                    counts[cluster] += 1
+                    break
+        for cluster in range(k):
+            members = features[labels == cluster]
+            if len(members):
+                centers[cluster] = members.mean(axis=0)
+    return labels
+
+
+def balanced_grouping(
+    activations: np.ndarray,
+    importance: np.ndarray,
+    *,
+    n_experts: int,
+    shared_ratio: float,
+    rng: np.random.Generator,
+    transform: str = "abs",
+) -> np.ndarray:
+    """Shared = top-importance channels; the rest split into EQUAL-SIZE experts by clustering
+    their (transformed) activation vectors. transform: 'raw' | 'abs' | 'squared'. Equal sizes
+    fix the active fraction at a given top_k, so this isolates grouping quality from budget-edge
+    effects. 'abs'/'squared' capture co-firing under the gated FFN (opposite-sign partners,
+    energy/contribution proxy)."""
+    importance = np.asarray(importance, dtype=np.float64)
+    activations = np.asarray(activations, dtype=np.float64)
+    channel_count = importance.shape[0]
+    n_shared = int(round(shared_ratio * channel_count))
+    order = np.argsort(-importance)
+    assignment = np.full(channel_count, SHARED, dtype=int)
+    remaining = order[n_shared:]
+    vectors = activations[:, remaining].T
+    if transform == "abs":
+        vectors = np.abs(vectors)
+    elif transform == "squared":
+        vectors = vectors ** 2
+    vectors = vectors / (np.linalg.norm(vectors, axis=1, keepdims=True) + 1e-12)
+    labels = balanced_assign(vectors, n_experts, rng=rng)
+    for channel, label in zip(remaining, labels):
+        assignment[channel] = int(label)
+    return assignment

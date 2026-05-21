@@ -4,6 +4,8 @@ import numpy as np
 
 from moeforge.grouping import (
     SHARED,
+    balanced_assign,
+    balanced_grouping,
     magnitude_grouping,
     oracle_topk_error,
     random_grouping,
@@ -62,3 +64,24 @@ def test_random_grouping_is_valid() -> None:
     assert assignment.shape == (20,)
     assert int((assignment == SHARED).sum()) == 4
     assert set(assignment[assignment != SHARED].tolist()).issubset({0, 1, 2, 3})
+
+
+def test_balanced_assign_produces_equal_sizes() -> None:
+    rng = np.random.default_rng(0)
+    points = rng.normal(size=(64, 5))
+    labels = balanced_assign(points, 4, rng=rng)
+    sizes = [int((labels == c).sum()) for c in range(4)]
+    assert sum(sizes) == 64
+    assert max(sizes) - min(sizes) <= 1  # near-equal by construction
+
+
+def test_balanced_grouping_is_balanced_and_valid() -> None:
+    rng = np.random.default_rng(0)
+    activations = rng.normal(size=(40, 24))
+    importance = np.abs(activations).mean(axis=0)
+    assignment = balanced_grouping(activations, importance, n_experts=4, shared_ratio=0.25, rng=rng, transform="abs")
+    assert assignment.shape == (24,)
+    assert int((assignment == SHARED).sum()) == 6
+    sizes = [int((assignment == c).sum()) for c in range(4)]
+    ideal = sum(sizes) / 4
+    assert max(sizes) <= 1.5 * ideal  # genuinely balanced, well under the 2x cap

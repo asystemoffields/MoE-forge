@@ -1,0 +1,28 @@
+
+=== layer3 === (max_size=336)
+  Hierarchical seed 0: err=0.474895, sizes=[333, 321, 72, 74, 73, 86, 306, 79], seed_time=0.63s
+  Hierarchical seed 1: err=0.468795, sizes=[73, 321, 333, 83, 61, 333, 62, 78], seed_time=0.63s
+  Hierarchical seed 2: err=0.469804, sizes=[65, 328, 332, 325, 55, 76, 84, 79], seed_time=0.62s
+  Hierarchical seed 3: err=0.472324, sizes=[318, 73, 336, 328, 67, 81, 67, 74], seed_time=0.63s
+  Hierarchical seed 4: err=0.492822, sizes=[67, 76, 318, 148, 302, 279, 77, 77], seed_time=0.62s
+  Hierarchical seed 5: err=0.466593, sizes=[55, 334, 327, 333, 63, 81, 68, 83], seed_time=0.62s
+  Hierarchical seed 6: err=0.494455, sizes=[280, 158, 305, 66, 75, 304, 79, 77], seed_time=0.62s
+  Hierarchical seed 7: err=0.475413, sizes=[72, 85, 71, 330, 332, 74, 286, 94], seed_time=0.62s
+  Hierarchical seed 8: err=0.487211, sizes=[282, 148, 314, 70, 79, 312, 73, 66], seed_time=0.64s
+  Hierarchical seed 9: err=0.467027, sizes=[335, 75, 324, 83, 315, 91, 55, 66], seed_time=0.63s
+  Best hierarchical (10 tries): err=0.422754, sizes=[332, 336, 336, 1, 1, 336, 1, 1], t=14.7s
+
+=== layer9 === (max_size=336)
+  Hierarchical seed 0: err=0.507847, sizes=[140, 314, 64, 288, 79, 68, 320, 71], seed_time=0.63s
+  Hierarchical seed 1: err=0.510150, sizes=[278, 79, 334, 73, 290, 138, 70, 82], seed_time=0.62s
+  Hierarchical seed 2: err=0.505113, sizes=[274, 136, 300, 76, 327, 86, 65, 80], seed_time=0.62s
+  Hierarchical seed 3: err=0.494225, sizes=[317, 78, 335, 76, 67, 319, 72, 80], seed_time=0.62s
+  Hierarchical seed 4: err=0.486984, sizes=[313, 76, 328, 331, 64, 76, 80, 76], seed_time=0.63s
+  Hierarchical seed 5: err=0.486012, sizes=[330, 85, 328, 55, 321, 77, 82, 66], seed_time=0.63s
+  Hierarchical seed 6: err=0.495349, sizes=[85, 333, 334, 87, 287, 73, 62, 83], seed_time=0.59s
+  Hierarchical seed 7: err=0.509081, sizes=[302, 332, 70, 284, 149, 55, 79, 73], seed_time=0.61s
+  Hierarchical seed 8: err=0.489581, sizes=[329, 304, 70, 331, 71, 80, 78, 81], seed_time=0.60s
+  Hierarchical seed 9: err=0.489181, sizes=[89, 325, 315, 336, 78, 65, 73, 63], seed_time=0.60s
+  Best hierarchical (10 tries): err=0.427940, sizes=[336, 336, 1, 336, 332, 1, 1, 1], t=18.2s
+
+Done.

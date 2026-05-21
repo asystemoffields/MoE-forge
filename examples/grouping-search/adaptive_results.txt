@@ -1,0 +1,12 @@
+
+=== layer3 ===
+  adaptive(6,10), tl=22s: err=0.409231, proxy=1215.63, trials=2, dt=35.9s
+  adaptive(6,10), tl=30s: err=0.409231, proxy=1215.63, trials=2, dt=38.9s
+  adaptive(6,10), tl=45s: err=0.409231, proxy=1215.63, trials=3, dt=55.9s
+
+=== layer9 ===
+  adaptive(6,10), tl=22s: err=0.418531, proxy=3270.42, trials=2, dt=36.4s
+  adaptive(6,10), tl=30s: err=0.418531, proxy=3270.42, trials=2, dt=35.1s
+  adaptive(6,10), tl=45s: err=0.418531, proxy=3270.42, trials=3, dt=56.0s
+
+Done.

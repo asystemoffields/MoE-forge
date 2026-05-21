@@ -1,0 +1,10 @@
+
+=== layer3 ===
+  swap+standard: err=0.410616, proxy=1217.42, t=36.0s
+  sizes=[336, 1, 1, 336, 192, 336, 1, 141]
+
+=== layer9 ===
+  swap+standard: err=0.422925, proxy=3280.87, t=36.6s
+  sizes=[1, 1, 1, 1, 336, 336, 336, 332]
+
+Done.

@@ -1,0 +1,36 @@
+
+=== layer3 ===
+  n_cand=4, tl=22s: err=0.410091, proxy=1213.53, trials=3, dt=24.9s
+  n_cand=4, tl=30s: err=0.410091, proxy=1213.53, trials=4, dt=38.9s
+  n_cand=4, tl=45s: err=0.410091, proxy=1213.53, trials=6, dt=50.6s
+  n_cand=6, tl=22s: err=0.409712, proxy=1215.47, trials=3, dt=30.8s
+  n_cand=6, tl=30s: err=0.409712, proxy=1215.47, trials=3, dt=30.5s
+  n_cand=6, tl=45s: err=0.409712, proxy=1215.47, trials=5, dt=52.0s
+  n_cand=8, tl=22s: err=0.409655, proxy=1210.95, trials=2, dt=27.1s
+  n_cand=8, tl=30s: err=0.409655, proxy=1210.95, trials=3, dt=38.8s
+  n_cand=8, tl=45s: err=0.410040, proxy=1212.02, trials=4, dt=50.9s
+  n_cand=10, tl=22s: err=0.408282, proxy=1209.26, trials=2, dt=31.7s
+  n_cand=10, tl=30s: err=0.408282, proxy=1209.26, trials=2, dt=31.8s
+  n_cand=10, tl=45s: err=0.410662, proxy=1211.77, trials=4, dt=58.4s
+  n_cand=12, tl=22s: err=0.409900, proxy=1211.52, trials=2, dt=36.6s
+  n_cand=12, tl=30s: err=0.409900, proxy=1211.52, trials=2, dt=36.2s
+  n_cand=12, tl=45s: err=0.409900, proxy=1211.52, trials=3, dt=51.2s
+
+=== layer9 ===
+  n_cand=4, tl=22s: err=0.420402, proxy=3268.31, trials=3, dt=27.1s
+  n_cand=4, tl=30s: err=0.420402, proxy=3268.31, trials=4, dt=37.8s
+  n_cand=4, tl=45s: err=0.420402, proxy=3268.31, trials=4, dt=51.0s
+  n_cand=6, tl=22s: err=0.419633, proxy=3268.57, trials=2, dt=32.5s
+  n_cand=6, tl=30s: err=0.419633, proxy=3268.57, trials=3, dt=38.0s
+  n_cand=6, tl=45s: err=0.419633, proxy=3268.57, trials=3, dt=45.8s
+  n_cand=8, tl=22s: err=0.419930, proxy=3267.82, trials=2, dt=35.6s
+  n_cand=8, tl=30s: err=0.419930, proxy=3267.82, trials=3, dt=38.1s
+  n_cand=8, tl=45s: err=0.419930, proxy=3267.82, trials=4, dt=58.8s
+  n_cand=10, tl=22s: err=0.421934, proxy=3266.94, trials=2, dt=43.1s
+  n_cand=10, tl=30s: err=0.421934, proxy=3266.94, trials=2, dt=41.9s
+  n_cand=10, tl=45s: err=0.421934, proxy=3266.94, trials=3, dt=62.7s
+  n_cand=12, tl=22s: err=0.420566, proxy=3269.45, trials=2, dt=45.3s
+  n_cand=12, tl=30s: err=0.420566, proxy=3269.45, trials=2, dt=44.4s
+  n_cand=12, tl=45s: err=0.420566, proxy=3269.45, trials=3, dt=45.7s
+
+Done.

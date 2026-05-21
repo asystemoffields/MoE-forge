@@ -1,0 +1,8 @@
+layer3 timing profile:
+  Restart 0: t_std=0.61s, t_swap=0.48s, t_std2=0.24s, total=1.32s, proxy=1181.12, n_sw1=731, err=0.418905
+  Restart 1: t_std=0.60s, t_swap=0.46s, t_std2=0.24s, total=1.29s, proxy=1183.22, n_sw1=744, err=0.418891
+  Restart 2: t_std=0.46s, t_swap=0.46s, t_std2=0.22s, total=1.14s, proxy=1168.00, n_sw1=769, err=0.419090
+  Restart 3: t_std=1.20s, t_swap=0.33s, t_std2=0.46s, total=2.00s, proxy=1195.62, n_sw1=267, err=0.417398
+  Restart 4: t_std=1.19s, t_swap=0.32s, t_std2=0.35s, total=1.86s, proxy=1189.05, n_sw1=298, err=0.420203
+
+Conclusion: swap sweep alone takes ~X sec
