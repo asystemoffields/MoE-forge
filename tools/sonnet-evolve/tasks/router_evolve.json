@@ -1,0 +1,21 @@
+{
+  "name": "router-evolve",
+  "evaluator_cmd": [
+    "python", "examples/router-search/eval_router.py",
+    "--candidate", "{candidate}",
+    "--layers", "examples/grouping-search/layer3.npz", "examples/grouping-search/layer9.npz",
+    "--experts", "8", "--shared-ratio", "0.125", "--top-k", "2",
+    "--grouping", "balanced-abs", "--state-budget-mult", "8"
+  ],
+  "evaluator_env": {"PYTHONPATH": "src"},
+  "score_key": "mean_error",
+  "direction": "min",
+  "seed_candidate": "../../../examples/router-search/candidates/seed_router.py",
+  "prompt_file": "router_evolve_prompt.md",
+  "candidate_filename": "router.py",
+  "generations": 4,
+  "candidates_per_gen": 3,
+  "parents_kept": 2,
+  "model": "claude-sonnet-4-6",
+  "temperature": 1.0
+}

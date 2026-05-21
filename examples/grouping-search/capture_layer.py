@@ -83,6 +83,12 @@ def main() -> None:
         down=down.astype(np.float32),
         importance=importance,
         layer=args.layer,
+        # Router-search tensors (examples/router-search): the FFN input hidden states a real
+        # router sees, plus the gate/up rows it derives per-expert keys from. Extra keys are
+        # ignored by grouping-search consumers.
+        hidden=hidden.astype(np.float32),
+        gate=gate.astype(np.float32),
+        up=up.astype(np.float32),
     )
     print(
         f"wrote {args.output}  tokens={activations.shape[0]} channels={activations.shape[1]} "
