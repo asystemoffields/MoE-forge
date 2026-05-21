@@ -30,6 +30,24 @@ def test_balanced_plan_for_dense_model() -> None:
     assert recipe.layout["active_fraction_mean"] is not None
 
 
+def test_user_strategy_override_is_honored() -> None:
+    info = ModelInfo(
+        path=Path("model"),
+        source_format="hf",
+        architecture="LlamaForCausalLM",
+        layer_count=32,
+        hidden_size=4096,
+        intermediate_size=11008,
+        dense=True,
+        adapter_family="llama",
+        adapter={"supported_backends": ["carved_mlp", "sparse_upcycle", "adapter_moe"]},
+    )
+
+    recipe = plan_conversion(info, PlanOptions(goal="balanced", strategy="sparse_upcycle"))
+    assert recipe.strategy == "sparse_upcycle"  # explicit override beats the goal default
+    assert any("construction backend" in w for w in recipe.warnings)  # warns it's plan-only today
+
+
 def test_speed_plan_uses_top_one() -> None:
     info = ModelInfo(
         path=Path("model.gguf"),

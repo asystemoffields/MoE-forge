@@ -18,6 +18,7 @@ class PlanOptions:
     moe_layers: str | None = None
     calibration_samples: int | None = None
     recover_steps: int | None = None
+    strategy: str | None = None  # user override: carved_mlp | sparse_upcycle | adapter_moe
 
 
 def plan_conversion(info: ModelInfo, options: PlanOptions) -> ConversionRecipe:
@@ -108,9 +109,27 @@ def plan_conversion(info: ModelInfo, options: PlanOptions) -> ConversionRecipe:
     )
 
 
+_IMPLEMENTED_BACKENDS = ("carved_mlp",)
+_KNOWN_STRATEGIES = ("carved_mlp", "sparse_upcycle", "adapter_moe")
+
+
 def _choose_strategy(info: ModelInfo, options: PlanOptions) -> tuple[str, str | None]:
     if info.dense is False:
         return "moe_retarget", None
+    if options.strategy:
+        chosen = options.strategy
+        notes: list[str] = []
+        if chosen not in _KNOWN_STRATEGIES:
+            notes.append(f"unknown strategy {chosen}; expected one of {', '.join(_KNOWN_STRATEGIES)}")
+        supported = _supported_backends(info)
+        if supported and chosen not in supported and chosen in _KNOWN_STRATEGIES:
+            notes.append(f"adapter {info.adapter_family} lists support for {', '.join(supported)}")
+        if chosen not in _IMPLEMENTED_BACKENDS:
+            notes.append(
+                f"only {', '.join(_IMPLEMENTED_BACKENDS)} has an implemented construction backend today; "
+                f"{chosen} produces a plan, not yet a built artifact"
+            )
+        return chosen, ("; ".join(notes) if notes else None)
     if options.goal == "quality":
         preferred = "sparse_upcycle"
     elif options.goal == "tiny":

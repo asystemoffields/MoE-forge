@@ -401,6 +401,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="Preferred output target.",
     )
     plan_parser.add_argument("--hardware", default="auto", help="Hardware hint such as cpu, laptop, cuda, or auto.")
+    plan_parser.add_argument(
+        "--strategy",
+        choices=["carved_mlp", "sparse_upcycle", "adapter_moe"],
+        help="Conversion backend. carved_mlp: smaller (~dense params) + sparse compute, harder to keep quality. "
+        "sparse_upcycle: bigger (N x FFN) but reliably high quality. adapter_moe: LoRA experts on a frozen trunk. "
+        "Default auto-selects from --goal. Only carved_mlp is built end-to-end today.",
+    )
     plan_parser.add_argument("--experts", type=int, help="Number of routed experts per converted layer.")
     plan_parser.add_argument("--top-k", type=int, help="Number of routed experts active per token.")
     plan_parser.add_argument("--shared-ratio", type=float, help="Fraction of FFN channels reserved for shared path.")
@@ -917,6 +924,7 @@ def _cmd_plan(args: argparse.Namespace) -> int:
         moe_layers=args.moe_layers,
         calibration_samples=args.calibration_samples,
         recover_steps=args.recover_steps,
+        strategy=args.strategy,
     )
     recipe = plan_conversion(info, options)
     payload = recipe_to_dict(recipe)
