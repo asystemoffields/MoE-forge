@@ -22,12 +22,13 @@ recomputing the full activations to reproduce the oracle. See the contract in
 
 ## Run it
 ```bash
-# 1. Capture router-ready layers (adds hidden/gate/up to the grouping-search .npz):
-python examples/grouping-search/capture_layer.py \
-    --source-model outputs/smollm-moe-release-v5/wrapper/source-model \
-    --tokenizer outputs/smollm-moe-release-v5/wrapper \
-    --layer 3 --output examples/grouping-search/layer3.npz
-#    (repeat for layers 9 = train, 6 = held-out validation)
+# 1. Capture router-ready layers (hidden/gate/up/down) from the dense base model. A hub id or
+#    a local path both work; layers 3 + 9 = train, 6 = held-out validation. (~6MB each, gitignored.)
+for L in 3 6 9; do
+  PYTHONPATH=src python examples/grouping-search/capture_layer.py \
+      --source-model HuggingFaceTB/SmolLM-135M --tokenizer HuggingFaceTB/SmolLM-135M \
+      --layer $L --output examples/router-search/layer$L.npz
+done
 
 # 2. Sanity-check the evaluator with no model, on a synthetic fixture:
 PYTHONPATH=src python examples/router-search/make_fixture.py
@@ -39,17 +40,36 @@ PYTHONPATH=src python examples/router-search/eval_router.py \
 ANTHROPIC_API_KEY=... python tools/sonnet-evolve/alphaevolve.py --task tools/sonnet-evolve/tasks/router_evolve.json
 
 # 3b. Evolve WITHOUT a key (the workflow used here): Claude Code spawns Sonnet subagents as
-#     the generator -- each reads this prompt + the current best candidates and returns a new
+#     the generator -- each reads the prompt + current best candidates and returns a new
 #     router.py; you write them into candidates/ and score each with eval_router.py (pure
 #     numpy, no key). Generation and evaluation stay separate: the model proposes, the
-#     evaluator disposes. The candidates/ lineage (gen1_* hand-seeded, gen2_* sonnet-spawned)
-#     is exactly such a run.
+#     evaluator disposes. The kept winner evolved_energy.py came from exactly such a run
+#     (gen* scratch is gitignored); see Result below.
 
 # 4. Validate the winner on the held-out layer:
 PYTHONPATH=src python examples/router-search/eval_router.py \
-    --candidate tools/sonnet-evolve/runs/router-evolve-*/best_candidate.py \
-    --layers examples/grouping-search/layer6.npz --experts 8 --top-k 2
+    --candidate examples/router-search/candidates/evolved_energy.py \
+    --layers examples/router-search/layer6.npz --experts 8 --top-k 2
 ```
+
+## Result (real captured SmolLM-135M layers)
+A key-free run -- four Sonnet subagents proposed, `eval_router.py` disposed -- produced
+`candidates/evolved_energy.py`, a second-order energy estimator that wins at every operating
+point and generalizes to the held-out layer:
+
+| setting              | oracle | random | evolved_energy | seed   |
+|----------------------|--------|--------|----------------|--------|
+| train(L3+L9) 8/top2  | 0.5545 | 0.6194 | **0.5942**     | 0.5958 |
+| held-out L6  8/top2  | 0.6006 | 0.6791 | **0.6426**     | 0.6482 |
+| train(L3+L9) 4/top2  | 0.4473 | 0.5041 | **0.4825**     | 0.4837 |
+
+Two honest takeaways: (1) the search works — `evolved_energy` beats the gate-direction seed and
+every other candidate everywhere, and the win holds out-of-sample; the *same* rule ranked LAST
+on the synthetic fixture, so only real layers can rank routers. (2) Routing headroom is modest:
+the best rule closes only ~40% of the random->oracle gap (~0.035-0.042 relative error left to
+the oracle). The dominant layer-reconstruction loss is the sparsity/grouping, not the selection
+rule — consistent with the sparsity-frontier finding. So a better router is best understood as a
+better recovery **warm-start**, not a way around carve sparsity.
 
 ## Honesty / scope
 This proxy scores **selection** on disjoint experts, so per-expert mixing *weights* do not enter

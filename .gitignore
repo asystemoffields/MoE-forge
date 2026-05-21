@@ -16,6 +16,8 @@ main.log
 tools/sonnet-evolve/runs/
 # evolved grouping candidates (seed is kept)
 examples/grouping-search/candidates/gen*
+# evolved router candidates (seed_router + curated evolved_* are kept)
+examples/router-search/candidates/gen*
 
 # grouping-search agent scratch
 examples/grouping-search/run_*.py

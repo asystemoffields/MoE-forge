@@ -37,8 +37,10 @@ CALIBRATION = [
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--source-model", type=Path, required=True)
-    parser.add_argument("--tokenizer", type=Path, required=True)
+    parser.add_argument("--source-model", type=str, required=True,
+                        help="HF hub id (e.g. HuggingFaceTB/SmolLM-135M) or local path.")
+    parser.add_argument("--tokenizer", type=str, required=True,
+                        help="HF hub id or local path.")
     parser.add_argument("--layer", type=int, required=True)
     parser.add_argument("--max-tokens", type=int, default=600)
     parser.add_argument("--output", type=Path, required=True)

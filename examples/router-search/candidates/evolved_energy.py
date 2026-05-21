@@ -1,5 +1,18 @@
-"""gen2_combined_energy: second-order energy estimator using combined gate+up directions.
+"""evolved_energy: the validated winner of the router-evolve search (Sonnet-spawned, gen2).
 
+Scored on real captured SmolLM-135M layers it beats the gate-direction seed and every other
+candidate at every operating point tested, and the win holds on a HELD-OUT layer (not metric
+gaming):
+
+  setting               oracle  random  evolved_energy  seed_router
+  train(L3+L9) 8/top2   0.5545  0.6194  0.5942          0.5958
+  held-out L6  8/top2   0.6006  0.6791  0.6426          0.6482
+  train(L3+L9) 4/top2   0.4473  0.5041  0.4825          0.4837
+
+(Note: on the synthetic fixture this same rule ranked LAST -- random Gaussian weights have none
+of the gate/up/down structure it exploits. Only real layers rank routers; see README.)
+
+--- mechanism ---
 The oracle selects experts by ||contribution_e(h)|| where contribution_e = act[:,mask_e] @ down[:,mask_e]^T
 and act_i = silu(h@gate_i) * (h@up_i). The product (h@gate_i)*(h@up_i) is bounded above by
 ((h@gate_i) + (h@up_i))^2 / 4 (AM-GM), and for active channels where both terms are positive this
@@ -9,7 +22,7 @@ is a tight approximation. So the squared contribution norm is approximately:
 
 M_e is PSD. We compress it to its top K eigenvectors (absorbing sqrt(eigenvalue) into each vector)
 and score at route time as sum_k (h @ v_ek)^2 = ||h @ V_e^T||^2 -- a genuine second-order energy
-proxy, O(n_experts * K * H) per token. Blended with the gen1_outweighted linear key for stability,
+proxy, O(n_experts * K * H) per token. Blended with the output-weighted linear key for stability,
 plus a log-mean-energy bias from calibration tokens (a free, non-overfitting prior on expert activity).
 
 State budget: E*(N_EIGVEC+1)*H + 3*E scalars = 6*E*H (for N_EIGVEC=5) < 8*E*H limit.
