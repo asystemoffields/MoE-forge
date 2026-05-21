@@ -1,0 +1,256 @@
+{
+  "checks": [
+    {
+      "message": "average drop=0.04900808337866114",
+      "name": "benchmark.average_drop",
+      "status": "pass",
+      "threshold": "<= 0.05",
+      "value": 0.04900808337866114
+    },
+    {
+      "message": "average retention=0.8869445950885854",
+      "name": "benchmark.average_retention",
+      "status": "fail",
+      "threshold": ">= 0.95",
+      "value": 0.8869445950885854
+    },
+    {
+      "message": "worst core drop=0.08499999999999996",
+      "name": "benchmark.core_drop",
+      "status": "fail",
+      "threshold": "<= 0.08",
+      "value": 0.08499999999999996
+    },
+    {
+      "message": "worst core retention=0.7990543735224587",
+      "name": "benchmark.core_retention",
+      "status": "fail",
+      "threshold": ">= 0.9",
+      "value": 0.7990543735224587
+    }
+  ],
+  "comparable_task_count": 8,
+  "dense_report": "outputs\\modal-jobs\\smollm-jointexperts-4k-benchmark\\dense\\results.json",
+  "format": "moeforge_benchmark_comparison",
+  "moe_report": "outputs\\modal-jobs\\smollm-jointexperts-4k-benchmark\\moe\\results.json",
+  "next_actions": [
+    "Improve sparse router recovery and rerun the same benchmark plan.",
+    "Compare all-expert, default-pool, and learned-router packages to isolate routing loss from carving loss."
+  ],
+  "passed": false,
+  "references": [
+    {
+      "note": "Source model summary, intended usage, training data, limitations, and Transformers loading path.",
+      "title": "SmolLM model card",
+      "url": "https://huggingface.co/HuggingFaceTB/SmolLM-135M"
+    },
+    {
+      "note": "Introduces the model family and frames evaluation around common-sense reasoning and world knowledge.",
+      "title": "SmolLM blog",
+      "url": "https://huggingface.co/blog/smollm"
+    },
+    {
+      "note": "Reports SmolLM-135M baseline scores and states that evaluations are zero-shot with LightEval.",
+      "title": "SmolLM2-135M model card",
+      "url": "https://huggingface.co/HuggingFaceTB/SmolLM2-135M"
+    },
+    {
+      "note": "Documents chat-template usage, instruct training mix, and intended local chat usage.",
+      "title": "SmolLM-135M-Instruct model card",
+      "url": "https://huggingface.co/HuggingFaceTB/SmolLM-135M-Instruct"
+    },
+    {
+      "note": "LightEval custom task recipe used by the SmolLM training/evaluation stack.",
+      "title": "Cosmopedia evaluation scripts",
+      "url": "https://github.com/huggingface/cosmopedia/tree/main/evaluation"
+    },
+    {
+      "note": "Evaluation framework with Transformers, Accelerate, vLLM, endpoint, and custom-task backends.",
+      "title": "LightEval docs",
+      "url": "https://huggingface.co/docs/lighteval/index"
+    }
+  ],
+  "results": [
+    {
+      "absolute_delta": -0.08499999999999996,
+      "dense_score": 0.423,
+      "label": "HellaSwag",
+      "metric_keys": [
+        "loglikelihood_acc_norm_nospace",
+        "acc_norm",
+        "accuracy"
+      ],
+      "moe_score": 0.338,
+      "priority": "core",
+      "reported_smollm_135m_instruct_score": null,
+      "reported_smollm_135m_score": 41.2,
+      "retention": 0.7990543735224587,
+      "task": "hellaswag"
+    },
+    {
+      "absolute_delta": -0.07299999999999995,
+      "dense_score": 0.592,
+      "label": "ARC Easy",
+      "metric_keys": [
+        "loglikelihood_acc_norm_nospace",
+        "acc_norm",
+        "accuracy"
+      ],
+      "moe_score": 0.519,
+      "priority": "core",
+      "reported_smollm_135m_instruct_score": null,
+      "reported_smollm_135m_score": null,
+      "retention": 0.8766891891891893,
+      "task": "arc:easy"
+    },
+    {
+      "absolute_delta": -0.014999999999999958,
+      "dense_score": 0.289,
+      "label": "ARC Challenge",
+      "metric_keys": [
+        "loglikelihood_acc_norm_nospace",
+        "acc_norm",
+        "accuracy"
+      ],
+      "moe_score": 0.274,
+      "priority": "core",
+      "reported_smollm_135m_instruct_score": null,
+      "reported_smollm_135m_score": null,
+      "retention": 0.9480968858131489,
+      "task": "arc:challenge"
+    },
+    {
+      "absolute_delta": -0.050999999999999934,
+      "dense_score": 0.688,
+      "label": "PIQA",
+      "metric_keys": [
+        "loglikelihood_acc_norm_nospace",
+        "acc_norm",
+        "accuracy"
+      ],
+      "moe_score": 0.637,
+      "priority": "core",
+      "reported_smollm_135m_instruct_score": null,
+      "reported_smollm_135m_score": 68.4,
+      "retention": 0.9258720930232559,
+      "task": "piqa"
+    },
+    {
+      "absolute_delta": -0.02999999999999997,
+      "dense_score": 0.31,
+      "label": "CommonsenseQA",
+      "metric_keys": [
+        "loglikelihood_acc_norm_nospace",
+        "acc_norm",
+        "accuracy"
+      ],
+      "moe_score": 0.28,
+      "priority": "core",
+      "reported_smollm_135m_instruct_score": null,
+      "reported_smollm_135m_score": 32.7,
+      "retention": 0.903225806451613,
+      "task": "commonsense_qa"
+    },
+    {
+      "absolute_delta": -0.041000000000000036,
+      "dense_score": 0.53,
+      "label": "Winogrande",
+      "metric_keys": [
+        "loglikelihood_acc_norm_nospace",
+        "acc_norm",
+        "accuracy"
+      ],
+      "moe_score": 0.489,
+      "priority": "core",
+      "reported_smollm_135m_instruct_score": null,
+      "reported_smollm_135m_score": 51.3,
+      "retention": 0.9226415094339622,
+      "task": "winogrande"
+    },
+    {
+      "absolute_delta": -0.066,
+      "dense_score": 0.334,
+      "label": "OpenBookQA",
+      "metric_keys": [
+        "loglikelihood_acc_norm_nospace",
+        "acc_norm",
+        "accuracy"
+      ],
+      "moe_score": 0.268,
+      "priority": "core",
+      "reported_smollm_135m_instruct_score": null,
+      "reported_smollm_135m_score": 34.0,
+      "retention": 0.8023952095808383,
+      "task": "openbookqa"
+    },
+    {
+      "absolute_delta": null,
+      "dense_score": null,
+      "label": "TriviaQA",
+      "metric_keys": [
+        "quasi_exact_match_triviaqa",
+        "exact_match",
+        "accuracy"
+      ],
+      "moe_score": null,
+      "priority": "core",
+      "reported_smollm_135m_instruct_score": null,
+      "reported_smollm_135m_score": 4.3,
+      "retention": null,
+      "task": "trivia_qa"
+    },
+    {
+      "absolute_delta": -0.03106466702928945,
+      "dense_score": 0.30189848160284116,
+      "label": "MMLU Cloze",
+      "metric_keys": [
+        "loglikelihood_acc_norm_nospace",
+        "acc_norm",
+        "accuracy"
+      ],
+      "moe_score": 0.2708338145735517,
+      "priority": "core",
+      "reported_smollm_135m_instruct_score": null,
+      "reported_smollm_135m_score": 30.2,
+      "retention": 0.8971022746972401,
+      "task": "mmlu_cloze"
+    },
+    {
+      "absolute_delta": null,
+      "dense_score": null,
+      "label": "GSM8K",
+      "metric_keys": [
+        "quasi_exact_match_gsm8k",
+        "exact_match",
+        "accuracy"
+      ],
+      "moe_score": null,
+      "priority": "diagnostic",
+      "reported_smollm_135m_instruct_score": null,
+      "reported_smollm_135m_score": 1.0,
+      "retention": null,
+      "task": "gsm8k"
+    }
+  ],
+  "status": "blocked",
+  "suite": "smollm-base",
+  "summary": {
+    "average_dense_score": 0.43348731020035514,
+    "average_drop": 0.04900808337866114,
+    "average_moe_score": 0.384479226821694,
+    "average_retention": 0.8869445950885854,
+    "worst_core_drop": 0.08499999999999996,
+    "worst_core_retention": 0.7990543735224587
+  },
+  "task_count": 10,
+  "thresholds": {
+    "max_average_drop": 0.05,
+    "max_core_drop": 0.08,
+    "min_average_retention": 0.95,
+    "min_core_retention": 0.9
+  },
+  "warnings": [
+    "missing benchmark metric for trivia_qa",
+    "missing benchmark metric for gsm8k"
+  ]
+}
