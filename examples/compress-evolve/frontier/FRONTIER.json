@@ -1,50 +1,112 @@
 [
   {
-    "name": "gen3_rotquant",
-    "family": "gen3_rotquant",
-    "generation": "seed",
-    "candidate_path": "examples\\compress-evolve\\candidates\\gen3_rotquant.py",
-    "bytes": 78355622,
+    "name": "auto_g2_2",
+    "family": "sub4_packed_v2",
+    "generation": "g2",
+    "candidate_path": "examples\\compress-evolve\\candidates\\auto_g2_2.py",
+    "bytes": 101651389,
     "full_bytes": 269030016,
-    "ratio": 3.433,
-    "nll": 3.6954,
-    "baseline_nll": 2.8231,
-    "nll_delta": 0.8723
+    "ratio": 2.647,
+    "nll": 3.4562,
+    "resident_bytes": 126996096,
+    "resident_ratio": 2.118,
+    "baseline_nll": 2.2503,
+    "nll_delta": 1.2059,
+    "worst_domain_delta": 1.4524,
+    "tail_delta": 1.4524,
+    "decode_seconds": 10.835,
+    "nll_delta_by_domain": {
+      "prose": 1.0737,
+      "code": 1.0916,
+      "knowledge": 1.4524
+    }
   },
   {
-    "name": "gen3_sparse",
-    "family": "gen3_sparse",
-    "generation": "seed",
-    "candidate_path": "examples\\compress-evolve\\candidates\\gen3_sparse.py",
-    "bytes": 98176185,
+    "name": "int4_packed",
+    "family": "int4_packed",
+    "generation": "seed3",
+    "candidate_path": "examples\\compress-evolve\\seeds\\int4_packed.py",
+    "bytes": 102728236,
     "full_bytes": 269030016,
-    "ratio": 2.74,
-    "nll": 3.1109,
-    "baseline_nll": 2.8231,
-    "nll_delta": 0.2878
+    "ratio": 2.619,
+    "nll": 2.8192,
+    "resident_bytes": 132218496,
+    "resident_ratio": 2.035,
+    "baseline_nll": 2.2503,
+    "nll_delta": 0.5689,
+    "worst_domain_delta": 0.6215,
+    "tail_delta": 0.6215,
+    "decode_seconds": 9.213,
+    "nll_delta_by_domain": {
+      "prose": 0.5806,
+      "code": 0.5046,
+      "knowledge": 0.6215
+    }
   },
   {
-    "name": "evolved_gptq4",
-    "family": "evolved_gptq4",
-    "generation": "seed",
-    "candidate_path": "examples\\compress-evolve\\candidates\\evolved_gptq4.py",
-    "bytes": 111405974,
+    "name": "auto_g2_1",
+    "family": "asym_packed_int4",
+    "generation": "g2",
+    "candidate_path": "examples\\compress-evolve\\candidates\\auto_g2_1.py",
+    "bytes": 113158252,
     "full_bytes": 269030016,
-    "ratio": 2.415,
-    "nll": 2.9163,
-    "baseline_nll": 2.8231,
-    "nll_delta": 0.0932
+    "ratio": 2.377,
+    "nll": 2.7096,
+    "resident_bytes": 132338304,
+    "resident_ratio": 2.033,
+    "baseline_nll": 2.2503,
+    "nll_delta": 0.4592,
+    "worst_domain_delta": 0.5359,
+    "tail_delta": 0.5359,
+    "decode_seconds": 9.814,
+    "nll_delta_by_domain": {
+      "prose": 0.3835,
+      "code": 0.5359,
+      "knowledge": 0.4584
+    }
+  },
+  {
+    "name": "auto_g3_2",
+    "family": "outlier_packed",
+    "generation": "g3",
+    "candidate_path": "examples\\compress-evolve\\candidates\\auto_g3_2.py",
+    "bytes": 117919658,
+    "full_bytes": 269030016,
+    "ratio": 2.281,
+    "nll": 2.5378,
+    "resident_bytes": 143097434,
+    "resident_ratio": 1.88,
+    "baseline_nll": 2.2503,
+    "nll_delta": 0.2875,
+    "worst_domain_delta": 0.4292,
+    "tail_delta": 0.4292,
+    "decode_seconds": 13.332,
+    "nll_delta_by_domain": {
+      "prose": 0.1542,
+      "code": 0.4292,
+      "knowledge": 0.2791
+    }
   },
   {
     "name": "noop",
     "family": "noop",
-    "generation": "seed",
+    "generation": "seed3",
     "candidate_path": "examples\\compress-evolve\\seeds\\noop.py",
     "bytes": 269138207,
     "full_bytes": 269030016,
     "ratio": 1.0,
-    "nll": 2.8231,
-    "baseline_nll": 2.8231,
-    "nll_delta": 0.0
+    "nll": 2.2503,
+    "resident_bytes": 325653120,
+    "resident_ratio": 0.826,
+    "baseline_nll": 2.2503,
+    "nll_delta": 0.0,
+    "worst_domain_delta": 0.0,
+    "tail_delta": 0.0,
+    "decode_seconds": 9.087,
+    "nll_delta_by_domain": {
+      "prose": 0.0,
+      "code": 0.0,
+      "knowledge": 0.0
+    }
   }
 ]
