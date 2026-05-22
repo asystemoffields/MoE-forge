@@ -1,5 +1,35 @@
 # Research Notes
 
+## Closing the carve 90->95 retention gap (2026-05-21/22) — three structural levers, all negative
+
+The carved MoE (SmolLM-135M, 4 experts) recovers to ~90% of dense at top-3/4 (mild sparsity); the
+carve is near-lossless, so the gap is the sparse top-k routing. Three attempts to close the last ~5pts:
+
+1. **Post-hoc low-rank residual** (fit a rank-r linear map to correct `forward_all - forward_token_router`):
+   captures only ~6% of the per-layer error (held-out rel-err 0.94), end-to-end NLL **+0.165 (worse)**.
+   The dropped-expert error is nonlinear + routing-dependent, not low-rank-linear in the layer input.
+   (`examples/residual-search/`)
+
+2. **Adaptive per-layer k** (redistribute a fixed avg-k budget): NLL **+0.32 (worse)** at matched active.
+   The expert-budget curve is a cliff (uniform top2=5.72, top3=3.85, top4=3.87 no-gain): 3 experts are
+   needed everywhere and the 4th is dead, so uniform top-3 is already optimal — no allocation headroom;
+   E=4 is too coarse. (`examples/adaptive-k/`)
+
+3. **Finer granularity (8 experts, top-6/8, matched active fraction)**: **84.9% avg retention — ~5pts
+   WORSE than the 4-expert top-3's 90.0%.** An oracle-reconstruction gate showed the 8-expert carve has a
+   ~6% lower recon FLOOR (30/30 layers), but the LEARNED 8-way top-6 router is harder to recover than
+   4-way top-3, so the deployed routing ate the floor gain (oracle selection != learned router — the gate
+   measured the wrong thing). Recovered teacher-KL 0.225 vs the 4-expert's 0.199.
+   (`examples/grouping-search/{carve_evolved_8,gate_oracle_recon}.py`) Also: `evolved_refine` "better
+   grouping" collapses to ~4 big experts under the 2x balance cap (coverage-optimization fights finer
+   granularity), so finer+better-grouping needs a tight-evenness constraint refine doesn't expose.
+
+**Conclusion:** ~90% is carve's practical ceiling at this scale/recipe. Recon/KL gains repeatedly fail to
+translate to retention (the floor improves but the learned router can't realize it). The mission-aligned
+path is **carve-at-mild-sparsity (~90%) x PMRA quantization**, not forcing carve alone to 95%. Levers not
+yet exhausted (uncertain): far larger recovery data/steps; a *trained-in* (not post-hoc) shared/low-rank
+capacity; a better learned-router init for higher expert counts; or upcycle instead of carve.
+
 ## EMO And Document-Level Modularity
 
 Ai2's EMO work is directly relevant to MoE Forge's router and profiling roadmap:
