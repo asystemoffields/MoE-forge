@@ -88,6 +88,28 @@
     }
   },
   {
+    "name": "auto_g5_0",
+    "family": "outlier_packed_v2",
+    "generation": "g5",
+    "candidate_path": "examples\\compress-evolve\\candidates\\auto_g5_0.py",
+    "bytes": 138857782,
+    "full_bytes": 269030016,
+    "ratio": 1.937,
+    "nll": 2.3666,
+    "resident_bytes": 159478878,
+    "resident_ratio": 1.687,
+    "baseline_nll": 2.2503,
+    "nll_delta": 0.1163,
+    "worst_domain_delta": 0.2099,
+    "tail_delta": 0.2099,
+    "decode_seconds": 10.931,
+    "nll_delta_by_domain": {
+      "prose": 0.06,
+      "code": 0.0789,
+      "knowledge": 0.2099
+    }
+  },
+  {
     "name": "noop",
     "family": "noop",
     "generation": "seed3",
